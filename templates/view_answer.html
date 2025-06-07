@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>상담 답변 보기</title>
+  <style>
+    body {
+      font-family: 'Nanum Gothic', sans-serif;
+      max-width: 700px;
+      margin: 50px auto;
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .answer-box {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
+    }
+    .label {
+      font-weight: bold;
+      margin-top: 10px;
+      color: #555;
+    }
+    .value {
+      margin-bottom: 20px;
+      padding: 10px;
+      background: #f1f2f6;
+      border-radius: 6px;
+      white-space: pre-wrap; /* ✅ 줄바꿈 처리 */
+    }
+    .back {
+      text-align: center;
+      margin-top: 30px;
+    }
+    .back a {
+      color: #3498db;
+      text-decoration: underline;
+      font-size: 15px;
+    }
+  </style>
+</head>
+<body>
+  <h2>📩 상담 답변</h2>
+  <div class="answer-box">
+    <div class="label">작성자</div>
+    <div class="value">{{ log.teacher_name }}</div>
+
+    <div class="label">작성일</div>
+    <div class="value">{{ log.date }}</div>
+
+    <div class="label">답변 내용</div>
+    <div class="value">{{ log.memo }}</div>
+  </div>
+
+  <div class="back">
+    <a href="javascript:window.close()">창 닫기</a>
+  </div>
+</body>
+</html>
