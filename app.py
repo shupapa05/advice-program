@@ -314,7 +314,10 @@ FOLDER_ID = '12osonR4XQbgmsIUCEgrUwMCJy7dEvWlm'  # 상담자료실 공유 폴더
 
 @app.route('/materials')
 def materials():
-    creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    creds_dict = json.loads(creds_json)
+    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+
     service = build('drive', 'v3', credentials=creds)
 
     results = service.files().list(
@@ -324,9 +327,4 @@ def materials():
     ).execute()
 
     files = results.get('files', [])
-    print("가져온 파일 목록:", files)
-
     return render_template('materials.html', files=files)
-
-if __name__ == '__main__':
-    app.run(debug=True)
