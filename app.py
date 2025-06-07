@@ -318,7 +318,7 @@ FOLDER_ID = '12osonR4XQbgmsIUCEgrUwMCJy7dEvWlm'  # 상담자료실 공유 폴더
 @app.route('/materials')
 def materials():
     try:
-        creds = service_account.Credentials.from_service_account_file('/app/credentials.json', scopes=SCOPES)
+        creds = service_account.Credentials.from_service_account_file('/etc/secrets/credentials.json', scopes=SCOPES)
 
         service = build('drive', 'v3', credentials=creds)
 
