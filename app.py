@@ -315,17 +315,29 @@ FOLDER_ID = '12osonR4XQbgmsIUCEgrUwMCJy7dEvWlm'  # 상담자료실 공유 폴더
 
 @app.route('/materials')
 def materials():
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
-    creds_dict = json.loads(creds_json)
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    try:
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+        if not creds_json:
+            return "❌ 환경변수 GOOGLE_CREDENTIALS_JSON가 설정되지 않았습니다.", 500
 
-    service = build('drive', 'v3', credentials=creds)
+        import json  # 혹시 빠졌으면 다시 추가
+        creds_dict = json.loads(creds_json)
+        creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 
-    results = service.files().list(
-        q=f"'{FOLDER_ID}' in parents and trashed=false",
-        fields="files(id, name, mimeType, webViewLink)",
-        orderBy="name"
-    ).execute()
+        service = build('drive', 'v3', credentials=creds)
 
-    files = results.get('files', [])
-    return render_template('materials.html', files=files)
+        results = service.files().list(
+            q=f"'{FOLDER_ID}' in parents and trashed=false",
+            fields="files(id, name, mimeType, webViewLink)",
+            orderBy="name"
+        ).execute()
+
+        files = results.get('files', [])
+        if not files:
+            return "⚠️ 파일이 없습니다. (Drive 폴더 확인)", 200
+
+        return render_template('materials.html', files=files)
+
+    except Exception as e:
+        return f"<h3>❌ 오류 발생:</h3><pre>{str(e)}</pre>", 500
+
