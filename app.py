@@ -47,10 +47,6 @@ class QuestionTemplate(db.Model):
     teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     question = db.Column(db.Text, nullable=False)
 
-if not os.path.exists("consulting.db"):
-    with app.app_context():
-        db.create_all()
-
 @app.route('/')
 def index():
     return render_template('index.html')
