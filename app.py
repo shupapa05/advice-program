@@ -314,10 +314,10 @@ FOLDER_ID = '12osonR4XQbgmsIUCEgrUwMCJy7dEvWlm'  # 상담자료실 공유 폴더
 @app.route('/materials')
 def materials():
     try:
-       creds = service_account.Credentials.from_service_account_file('/app/credentials.json', scopes=SCOPES)
-
+        creds = service_account.Credentials.from_service_account_file(
+            '/app/credentials.json', scopes=SCOPES
+        )
         service = build('drive', 'v3', credentials=creds)
-
         results = service.files().list(
             q=f"'{FOLDER_ID}' in parents and trashed=false",
             fields="files(id, name, mimeType, webViewLink)",
@@ -330,7 +330,11 @@ def materials():
 
         return render_template('materials.html', files=files)
 
-    @app.route('/edit_request/<int:id>', methods=['GET', 'POST'])
+    except Exception as e:
+        return f"<h3>❌ 오류 발생:</h3><pre>{str(e)}</pre>", 500
+
+# ✅ 날짜 수정용 라우트 (독립된 위치로 빼기)
+@app.route('/edit_request/<int:id>', methods=['GET', 'POST'])
 def edit_request(id):
     consult = ConsultRequest.query.get_or_404(id)
     if request.method == 'POST':
@@ -340,5 +344,3 @@ def edit_request(id):
     return render_template('edit_request.html', consult=consult)
 
 
-    except Exception as e:
-        return f"<h3>❌ 오류 발생:</h3><pre>{str(e)}</pre>", 500
