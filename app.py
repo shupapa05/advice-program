@@ -55,6 +55,14 @@ with app.app_context():
         db.session.add(admin)
         db.session.commit()
 
+@app.route('/init_db')
+def init_db():
+    """Render에서 처음 배포 직후 DB·테이블을 만드는 용도."""
+    with app.app_context():
+        db.create_all()
+    return "✅ DB가 초기화되었습니다!"
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
