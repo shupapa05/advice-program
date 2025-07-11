@@ -72,7 +72,11 @@
         <td>{{ r.topic }}</td>
         <td>{{ r.content }}</td>
         <td>{{ r.checked }}</td>
-        <td><a class="btn" href="/write_log/{{ r.id }}">{{ r.btn_label }}</a></td>
+       <td>
+  <a class="btn" href="/write_log/{{ r.id }}">{{ r.btn_label }}</a><br><br>
+  <a class="btn" href="/edit_request/{{ r.id }}">날짜 수정</a>
+</td>
+
       </tr>
       {% endfor %}
     </tbody>
