@@ -4,9 +4,6 @@ from datetime import datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import os
-import json
-from google.oauth2 import service_account
-
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -46,6 +43,10 @@ class QuestionTemplate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     question = db.Column(db.Text, nullable=False)
+
+if not os.path.exists("consulting.db"):
+    with app.app_context():
+        db.create_all()
 
 @app.route('/')
 def index():
@@ -313,35 +314,19 @@ FOLDER_ID = '12osonR4XQbgmsIUCEgrUwMCJy7dEvWlm'  # 상담자료실 공유 폴더
 
 @app.route('/materials')
 def materials():
-    try:
-        creds = service_account.Credentials.from_service_account_file(
-            '/app/credentials.json', scopes=SCOPES
-        )
-        service = build('drive', 'v3', credentials=creds)
-        results = service.files().list(
-            q=f"'{FOLDER_ID}' in parents and trashed=false",
-            fields="files(id, name, mimeType, webViewLink)",
-            orderBy="name"
-        ).execute()
+    creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+    service = build('drive', 'v3', credentials=creds)
 
-        files = results.get('files', [])
-        if not files:
-            return "⚠️ 파일이 없습니다. (Drive 폴더 확인)", 200
+    results = service.files().list(
+        q=f"'{FOLDER_ID}' in parents and trashed=false",
+        fields="files(id, name, mimeType, webViewLink)",
+        orderBy="name"
+    ).execute()
 
-        return render_template('materials.html', files=files)
+    files = results.get('files', [])
+    print("가져온 파일 목록:", files)
 
-    except Exception as e:
-        return f"<h3>❌ 오류 발생:</h3><pre>{str(e)}</pre>", 500
+    return render_template('materials.html', files=files)
 
-# ✅ 날짜 수정용 라우트 (독립된 위치로 빼기)
-@app.route('/edit_request/<int:id>', methods=['GET', 'POST'])
-def edit_request(id):
-    consult = ConsultRequest.query.get_or_404(id)
-    if request.method == 'POST':
-        consult.date = request.form['date']
-        db.session.commit()
-        return redirect('/teacher_home')  # 수정 후 돌아갈 경로
-    return render_template('edit_request.html', consult=consult)
-    
-
-
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
