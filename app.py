@@ -330,5 +330,15 @@ def materials():
 
         return render_template('materials.html', files=files)
 
+    @app.route('/edit_request/<int:id>', methods=['GET', 'POST'])
+def edit_request(id):
+    consult = ConsultRequest.query.get_or_404(id)
+    if request.method == 'POST':
+        consult.date = request.form['date']
+        db.session.commit()
+        return redirect('/teacher_home')  # 수정 후 돌아갈 경로
+    return render_template('edit_request.html', consult=consult)
+
+
     except Exception as e:
         return f"<h3>❌ 오류 발생:</h3><pre>{str(e)}</pre>", 500
