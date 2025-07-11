@@ -1,5 +1,7 @@
-Flask==2.3.3
-flask_sqlalchemy==3.1.1
-sqlalchemy==1.4.49
-google-auth==2.29.0
-google-api-python-client==2.126.0
+Flask
+Flask_SQLAlchemy
+gunicorn
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
