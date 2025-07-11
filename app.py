@@ -4,6 +4,7 @@ from datetime import datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import os
+import json
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -44,9 +45,14 @@ class QuestionTemplate(db.Model):
     teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     question = db.Column(db.Text, nullable=False)
 
-if not os.path.exists("consulting.db"):
-    with app.app_context():
-        db.create_all()
+# ✅ DB 초기화 + 관리자 계정 삽입 (무조건 실행)
+with app.app_context():
+    db.create_all()
+
+    if not Teacher.query.first():
+        admin = Teacher(username='admin', password='admin123', grade=0, class_num=0, is_approved=True)
+        db.session.add(admin)
+        db.session.commit()
 
 @app.route('/')
 def index():
@@ -329,4 +335,4 @@ def materials():
     return render_template('materials.html', files=files)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
