@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://advice_z3qb_user:98PkbxAHThDoCa4uGdVhIEyVx9GIyTFi@dpg-d18fmqogjchc73biaagg-a/advice_z3qb'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///consulting.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
