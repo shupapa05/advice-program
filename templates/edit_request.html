@@ -5,13 +5,15 @@
     <title>상담 날짜 수정</title>
 </head>
 <body>
-    <h2>상담 날짜 수정</h2>
+    <h2>📅 상담 날짜 수정</h2>
+
     <p><strong>신청자:</strong> {{ consult.name }}</p>
     <p><strong>기존 날짜:</strong> {{ consult.date }}</p>
 
     <form method="POST">
         <label for="date">새로운 날짜 선택:</label>
-        <input type="date" name="date" required>
+        <input type="date" id="date" name="date" 
+               value="{{ consult.date[:10] if consult.date else '' }}" required>
         <br><br>
         <button type="submit">수정 완료</button>
     </form>
