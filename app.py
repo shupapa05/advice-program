@@ -342,5 +342,6 @@ def edit_request(id):
         db.session.commit()
         return redirect('/teacher_home')  # 수정 후 돌아갈 경로
     return render_template('edit_request.html', consult=consult)
+    
 
 
