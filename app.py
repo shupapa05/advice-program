@@ -14,6 +14,13 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
+import threading
+from backup_manager import run_backup_loop
+
+backup_thread = threading.Thread(target=run_backup_loop)
+backup_thread.daemon = True
+backup_thread.start()
+
 class ConsultRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     grade = db.Column(db.Integer, nullable=False)
@@ -344,13 +351,4 @@ def materials():
     return render_template('materials.html', files=files)
 
 if __name__ == '__main__':
-    import threading
-    from backup_manager import run_backup_loop
-
-    # 백업 스레드 실행 (Flask와 병행 실행)
-    backup_thread = threading.Thread(target=run_backup_loop)
-    backup_thread.daemon = True
-    backup_thread.start()
-
-    # Flask 서버 시작
     app.run(host='0.0.0.0', port=5000)
