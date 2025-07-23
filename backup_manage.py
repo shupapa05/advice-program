@@ -37,3 +37,4 @@ def run_backup_loop():
         except Exception as e:
             print(f"[!] Error during backup: {e}")
         time.sleep(BACKUP_INTERVAL)
+        
