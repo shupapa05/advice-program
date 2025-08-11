@@ -314,6 +314,14 @@ def approve_teachers():
     unapproved = Teacher.query.filter_by(is_approved=False).all()
     return render_template('approve_teachers.html', teachers=unapproved)
 
+@app.route('/admin/db_info')
+def db_info():
+    path = database_url if not database_url.startswith('sqlite:///') \
+           else database_url.replace('sqlite:///', '', 1)
+    return {"db_in_use": path, "DATA_DIR": os.getenv("DATA_DIR")}
+}
+
+
 # ── 로컬 실행용 ─────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
