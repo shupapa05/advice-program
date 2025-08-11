@@ -319,7 +319,6 @@ def db_info():
     path = database_url if not database_url.startswith('sqlite:///') \
            else database_url.replace('sqlite:///', '', 1)
     return {"db_in_use": path, "DATA_DIR": os.getenv("DATA_DIR")}
-}
 
 
 # ── 로컬 실행용 ─────────────────────────────────────────────────────────────
