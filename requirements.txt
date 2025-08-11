@@ -1,7 +1,4 @@
-Flask
-Flask_SQLAlchemy
-gunicorn
-google-api-python-client
-google-auth
-google-auth-httplib2
-google-auth-oauthlib
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+gunicorn==22.0.0
+tzdata>=2024.1
