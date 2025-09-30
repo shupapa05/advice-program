@@ -1,4 +1,6 @@
+# wsgi.py
 import os, sys, shutil, traceback
+from importlib import import_module
 from flask import Flask
 
 BASE = os.path.dirname(__file__)
@@ -14,33 +16,58 @@ if not os.path.exists(TARGET) and os.path.exists(SEED):
     shutil.copyfile(SEED, TARGET)
 # --------------------------------
 
-# ----- Flask app 임포트 (여러 구조 자동 시도) -----
-def _try(path):
-    mod, attr = path.split(":")
-    m = __import__(mod, fromlist=[attr])
-    obj = getattr(m, attr)
-    return obj() if callable(obj) else obj
+
+def load_flask_app():
+    errors = []
+
+    # 1) 가장 정상적인 구조: advice6/app.py 안의 app 변수
+    try:
+        mod = import_module("advice6.app")
+        a = getattr(mod, "app")
+        # 절대 호출하지 않음: Flask 인스턴스도 callable 이라서!
+        return a
+    except Exception as e:
+        errors.append(f"advice6.app:app -> {e}\n{traceback.format_exc()}")
+
+    # 2) 팩토리 패턴: advice6/__init__.py 안의 create_app()
+    try:
+        pkg = import_module("advice6")
+        create = getattr(pkg, "create_app")
+        if callable(create):
+            return create()
+    except Exception as e:
+        errors.append(f"advice6:create_app -> {e}\n{traceback.format_exc()}")
+
+    # 3) 실패 내역 반환
+    return None, errors
+
 
 app = None
-errors = []
-for cand in ("advice6.app:app", "advice6:app", "advice6:create_app"):
-    try:
-        app = _try(cand)
-        break
-    except Exception as e:
-        errors.append(f"{cand}: {e}\n{traceback.format_exc()}")
+load_result = load_flask_app()
+if isinstance(load_result, tuple):
+    app, import_errors = load_result
+else:
+    app, import_errors = load_result, []
 
 # ----- 실패해도 '안전모드'로 반드시 기동 -----
 if app is None:
     print("=== SAFE MODE: advice6 임포트 실패, 임시 앱으로 실행합니다 ===")
-    for i, msg in enumerate(errors, 1):
+    for i, msg in enumerate(import_errors, 1):
         print(f"[IMPORT ERR {i}]\n{msg}")
+
     app = Flask(__name__)
 
     @app.get("/")
     def _home():
-        return "<h2>임시 안전모드</h2><p>Deploy는 성공했지만 advice6 임포트 오류가 있습니다. Render 로그를 확인하세요.</p>"
+        return (
+            "<h2>임시 안전모드</h2>"
+            "<p>Deploy는 성공했지만 advice6 임포트 오류가 있습니다.<br>"
+            "Render 로그의 [IMPORT ERR …] 내용을 확인해 주세요.</p>"
+        )
 
     @app.get("/healthz")
     def _hz():
         return {"ok": True, "mode": "safe"}, 200
+
+# 일부 플랫폼 호환(혹시 wsgi:application을 찾는 경우 대비)
+application = app
