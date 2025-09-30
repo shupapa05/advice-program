@@ -1,68 +1,198 @@
-<!DOCTYPE html>
+<!-- templates/statistics.html -->
+<!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <title>상담 통계</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    body {
-      font-family: 'Nanum Gothic', sans-serif;
-      max-width: 700px;
-      margin: 60px auto;
-      padding: 20px;
-      background-color: #f8f9fa;
+    :root {
+      --bg:#f7f7fb; --card:#ffffff; --text:#222; --muted:#666; --accent:#4f46e5; --ok:#16a34a; --warn:#eab308; --bad:#dc2626;
+      --border:#e5e7eb;
     }
-    h2 {
-      text-align: center;
-      margin-bottom: 40px;
-    }
-    .section {
-      background: white;
-      padding: 20px;
-      border-radius: 12px;
-      margin-bottom: 30px;
-      box-shadow: 0 0 5px rgba(0,0,0,0.1);
-    }
-    h3 {
-      margin-bottom: 15px;
-      color: #22a6b3;
-    }
-    ul {
-      list-style: none;
-      padding: 0;
-    }
-    li {
-      padding: 5px 0;
-      font-size: 16px;
-    }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);font:14px/1.45 "Pretendard","Segoe UI",system-ui,sans-serif;color:var(--text)}
+    header{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);background:#fff;position:sticky;top:0}
+    header a{color:var(--accent);text-decoration:none}
+    .wrap{max-width:1040px;margin:18px auto;padding:0 16px}
+    h1{font-size:20px;margin:6px 0 14px}
+    h2{font-size:17px;margin:22px 0 10px}
+    h3{font-size:15px;margin:14px 0 8px}
+    .grid{display:grid;gap:12px}
+    .grid.kpi{grid-template-columns:repeat(2,1fr)}
+    @media(min-width:800px){ .grid.kpi{grid-template-columns:repeat(4,1fr)} }
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
+    .kpi .label{color:var(--muted);font-size:12px}
+    .kpi .num{font-size:22px;font-weight:700;margin-top:4px}
+    .muted{color:var(--muted)}
+    .bar{height:10px;background:#eef2ff;border-radius:999px;overflow:hidden}
+    .bar > i{display:block;height:100%;background:var(--accent)}
+    table{width:100%;border-collapse:collapse;border:1px solid var(--border);background:#fff;border-radius:12px;overflow:hidden}
+    th,td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;font-size:13px}
+    th{background:#fafafa}
+    tr:last-child td{border-bottom:none}
+    .pill{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px;background:#fff}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .row > .card{flex:1 1 320px}
+    .list-reset{list-style:none;margin:0;padding:0}
+    .status-ok{color:var(--ok)} .status-warn{color:var(--warn)} .status-bad{color:var(--bad)}
+    .small{font-size:12px}
   </style>
 </head>
 <body>
-  <h2>📊 상담 통계</h2>
+<header>
+  <a href="{{ url_for('teacher_home') }}">← 홈</a>
+  <span class="muted">/</span>
+  <strong>상담 통계</strong>
+  <span class="muted small" style="margin-left:auto">KST 기준</span>
+</header>
 
-  <div class="section">
-    <h3>주제별 상담 건수</h3>
-    <ul>
-      {% for topic, count in topic_count.items() %}
-        <li>{{ topic }}: {{ count }}건</li>
-      {% endfor %}
-    </ul>
+<div class="wrap">
+  {% set s = stats or {} %}
+  {% set applicant = s.applicant or {} %}
+  {% set by_topic = s.by_topic or topic_count or {} %}
+  {% set by_grade = s.by_grade or grade_count or {} %}
+  {% set by_grade_class = s.by_grade_class or {} %}
+  {% set top_topics = s.top_topics or [] %}
+  {% set recent = s.recent_unanswered or [] %}
+  {% set teacher_activity = s.teacher_activity_30d or {} %}
+
+  <h1>요약</h1>
+  <div class="grid kpi">
+    <div class="card kpi">
+      <div class="label">총 신청</div>
+      <div class="num">{{ s.total|default(0) }}</div>
+    </div>
+    <div class="card kpi">
+      <div class="label">처리 완료</div>
+      <div class="num status-ok">{{ s.handled|default(0) }}</div>
+    </div>
+    <div class="card kpi">
+      <div class="label">미처리</div>
+      <div class="num status-bad">{{ s.pending|default(0) }}</div>
+    </div>
+    <div class="card kpi">
+      <div class="label">처리율</div>
+      <div class="num">{{ s.handled_rate|default(0) }}%</div>
+      <div class="bar" style="margin-top:8px"><i style="width: {{ s.handled_rate|default(0) }}%"></i></div>
+    </div>
+    <div class="card kpi">
+      <div class="label">오늘 접수</div>
+      <div class="num">{{ s.today|default(0) }}</div>
+    </div>
+    <div class="card kpi">
+      <div class="label">최근 7일</div>
+      <div class="num">{{ s.last7d|default(0) }}</div>
+    </div>
+    <div class="card kpi">
+      <div class="label">최근 30일</div>
+      <div class="num">{{ s.last30d|default(0) }}</div>
+    </div>
+    <div class="card kpi">
+      <div class="label">평균 응답시간</div>
+      <div class="num">{{ s.avg_response_hours if s.avg_response_hours is not none else '-' }}<span class="small"> 시간</span></div>
+    </div>
   </div>
 
-  <div class="section">
-    <h3>학년별 상담 건수</h3>
-    <ul>
-      {% for grade, count in grade_count.items() %}
-        <li>{{ grade }}학년: {{ count }}건</li>
-      {% endfor %}
-    </ul>
+  <div class="row" style="margin-top:12px">
+    <div class="card">
+      <h2>신청자 유형</h2>
+      <p>학생 <span class="pill">{{ applicant.get('student',0) }}건</span> · 학부모 <span class="pill">{{ applicant.get('parent',0) }}건</span></p>
+      {% if applicant.get('student_ratio') is defined %}
+        <p class="muted small">학생 {{ applicant.student_ratio }}% · 학부모 {{ applicant.parent_ratio }}%</p>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h2>상위 주제 Top 5</h2>
+      <table>
+        <thead><tr><th>주제</th><th>건수</th></tr></thead>
+        <tbody>
+        {% if top_topics %}
+          {% for t, n in top_topics %}
+          <tr><td>{{ t }}</td><td>{{ n }}</td></tr>
+          {% endfor %}
+        {% else %}
+          {% for t, n in by_topic|dictsort(by='value', reverse=True)[:5] %}
+          <tr><td>{{ t }}</td><td>{{ n }}</td></tr>
+          {% endfor %}
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
   </div>
 
-  <div style="text-align: center; margin-top: 40px;">
-    <a href="/teacher_home" class="btn">🏠 교사 홈으로 돌아가기</a>
+  <div class="row">
+    <div class="card">
+      <h2>학년 분포</h2>
+      <table>
+        <thead><tr><th>학년</th><th>건수</th></tr></thead>
+        <tbody>
+          {% for g, n in by_grade|dictsort %}
+          <tr><td>{{ g }}학년</td><td>{{ n }}</td></tr>
+          {% else %}
+          <tr><td colspan="2" class="muted">데이터가 없습니다.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>학년·반 분포</h2>
+      {% if by_grade_class %}
+        {% for g, cls in by_grade_class|dictsort %}
+          <h3 class="small" style="margin-top:4px">{{ g }}학년</h3>
+          <ul class="list-reset">
+          {% for c, n in cls|dictsort %}
+            <li>{{ g }}-{{ c }}반 <span class="pill">{{ n }}건</span></li>
+          {% endfor %}
+          </ul>
+        {% endfor %}
+      {% else %}
+        <p class="muted">데이터가 없습니다.</p>
+      {% endif %}
+    </div>
   </div>
 
-</body>
-</html>
+  <div class="row">
+    <div class="card" style="flex:2">
+      <h2>미답변(최신 10)</h2>
+      <table>
+        <thead><tr><th>신청시각</th><th>학반/번호</th><th>이름</th><th>주제</th><th>처리</th></tr></thead>
+        <tbody>
+          {% for r in recent %}
+          <tr>
+            <td class="small">{{ r.date }}</td>
+            <td>{{ r.grade }}-{{ r.class_num }} / {{ r.number }}</td>
+            <td>{{ r.name }}</td>
+            <td>{{ r.topic }}</td>
+            <td><a class="pill" href="{{ url_for('write_log', req_id=r.id) }}">답변 작성</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="muted">미답변 목록이 없습니다.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
 
+    <div class="card" style="flex:1">
+      <h2>교사별 활동(최근 30일)</h2>
+      <table>
+        <thead><tr><th>교사</th><th>기록 수</th></tr></thead>
+        <tbody>
+          {% for t, n in teacher_activity.items() %}
+          <tr><td>{{ t }}</td><td>{{ n }}</td></tr>
+          {% else %}
+          <tr><td colspan="2" class="muted">최근 30일 활동이 없습니다.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="margin-top:18px">
+    <a class="pill" href="{{ url_for('teacher_home') }}">← 교사 홈으로</a>
+    <a class="pill" href="{{ url_for('consult_list') }}">상담 목록</a>
+    <a class="pill" href="{{ url_for('statistics') }}">새로고침</a>
+  </div>
+</div>
 </body>
 </html>
