@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, session, flash, url_for, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, timedelta
 import os, re, logging
 from zoneinfo import ZoneInfo
 
@@ -9,10 +9,10 @@ app = Flask(__name__)
 # 기능 토글: 신청일 수정 보이기/숨기기
 EDIT_DATE_ENABLED = os.getenv('EDIT_DATE_ENABLED', '1') == '1'
 
-# === PATCH: SECRET_KEY 환경변수 우선 ===
+# === SECRET_KEY 환경변수 우선 ===
 app.secret_key = os.getenv('SECRET_KEY', 'your_secret_key')
 
-# === PATCH: DATABASE_URL / SQLITE_PATH 환경변수 우선 + sqlite 폴백 ===
+# === DATABASE_URL / SQLITE_PATH 환경변수 우선 + sqlite 폴백 ===
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 # SQLITE_PATH가 지정되어 있으면 해당 경로의 sqlite 파일 사용, 없으면 프로젝트 루트의 consulting.db 사용
@@ -26,12 +26,25 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# === PATCH: 로깅/KST 헬퍼 ===
+# === 로깅/KST 헬퍼 ===
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 KST = ZoneInfo("Asia/Seoul")
 def now_kst_str():
     return datetime.now(KST).strftime('%Y-%m-%d %H:%M')
 
+# 문자열 날짜 -> datetime (KST) 공통 파서
+def parse_dt(s: str):
+    """consulting.db 안 문자열 날짜를 datetime으로 파싱(KST 기준). 실패하면 None."""
+    if not s:
+        return None
+    for fmt in ('%Y-%m-%d %H:%M', '%Y/%m/%d %H:%M', '%Y.%m.%d %H:%M', '%Y-%m-%dT%H:%M'):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=KST)
+        except ValueError:
+            continue
+    return None
+
+# === 모델 ===
 class ConsultRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     grade = db.Column(db.Integer, nullable=False)
@@ -64,18 +77,18 @@ class QuestionTemplate(db.Model):
     teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     question = db.Column(db.Text, nullable=False)
 
-# === PATCH: DB 자동 생성(폴백 sqlite일 때만) ===
+# === DB 자동 생성(폴백 sqlite일 때만) ===
 if (database_url.startswith('sqlite:///')
     and not os.path.exists(sqlite_path)):
     with app.app_context():
         db.create_all()
 
-# === PATCH: 헬스체크(배포/슬립 대응) ===
+# === 헬스체크(배포/슬립 대응) ===
 @app.route('/healthz')
 def healthz():
     return {'ok': True, 'time_kst': now_kst_str()}, 200
 
-# === PATCH: DB 점검용(선택) ===
+# === DB 점검용(선택) ===
 @app.get("/dbcheck")
 def dbcheck():
     try:
@@ -108,7 +121,7 @@ def student_request():
             contact = request.form['contact']
             content = f"[관계: {relation}, 연락처: {contact}]\n{request.form['content']}"
 
-        # === PATCH: 주제 선택 처리(기타 입력 반영) ===
+        # 주제 '기타' 처리
         topic = request.form['topic']
         if topic == '기타':
             topic = (request.form.get('custom_topic') or '').strip() or '기타'
@@ -120,9 +133,9 @@ def student_request():
             name=name,
             password=request.form['password'],
             category="상담",
-            topic=topic,  # ← topic 변수 사용
+            topic=topic,
             content=content,
-            date=now_kst_str()  # === PATCH: 표준 KST 포맷 사용
+            date=now_kst_str()
         )
         db.session.add(new_request)
         db.session.commit()
@@ -260,7 +273,6 @@ def consult_list():
             'answer': log.memo if log else ''
         })
 
-    # 이 줄은 함수 안쪽에 있어야 합니다.
     return render_template('consult_list.html',
                            requests=result,
                            edit_date_enabled=EDIT_DATE_ENABLED)
@@ -278,13 +290,13 @@ def write_log(req_id):
 
         if log:
             log.memo = memo
-            log.date = now_kst_str()  # === PATCH
+            log.date = now_kst_str()
         else:
             log = ConsultLog(
                 request_id=req_id,
                 teacher_name=session['teacher_username'],
                 memo=memo,
-                date=now_kst_str()  # === PATCH
+                date=now_kst_str()
             )
             db.session.add(log)
 
@@ -293,23 +305,197 @@ def write_log(req_id):
 
     return render_template('write_log.html', request_data=request_data, log=log)
 
+# ===========================
+#     통계 강화된 버전
+# ===========================
 @app.route('/statistics')
 def statistics():
     if 'teacher_id' not in session:
         return redirect('/teacher_login')
 
-    logs = ConsultLog.query.all()
+    # 원본 데이터
     requests = ConsultRequest.query.all()
+    logs = ConsultLog.query.all()
 
-    topic_count = {}
-    grade_count = {}
+    # id -> 첫 로그
+    log_by_req_id = {}
+    for lg in logs:
+        log_by_req_id.setdefault(lg.request_id, lg)
+
+    now = datetime.now(KST)
+    d7 = now - timedelta(days=7)
+    d30 = now - timedelta(days=30)
+
+    total = len(requests)
+    handled = 0
+    pending = 0
+    by_topic = {}
+    by_grade = {}
+    by_grade_class = {}
+    recent_unanswered = []
+    teacher_activity_30d = {}
+    parent_cnt = 0
+    student_cnt = 0
+    response_hours = []
 
     for r in requests:
-        topic = r.topic
-        topic_count[topic] = topic_count.get(topic, 0) + 1
-        grade_count[r.grade] = grade_count.get(r.grade, 0) + 1
+        # 신청자 유형
+        if r.content.strip().startswith('[관계:'):
+            parent_cnt += 1
+        else:
+            student_cnt += 1
 
-    return render_template('statistics.html', topic_count=topic_count, grade_count=grade_count)
+        by_topic[r.topic] = by_topic.get(r.topic, 0) + 1
+        by_grade[r.grade] = by_grade.get(r.grade, 0) + 1
+        key_gc = (r.grade, r.class_num)
+        by_grade_class[key_gc] = by_grade_class.get(key_gc, 0) + 1
+
+        req_dt = parse_dt(r.date)
+        lg = log_by_req_id.get(r.id)
+
+        if lg:
+            handled += 1
+            lg_dt = parse_dt(lg.date)
+            if req_dt and lg_dt and lg_dt >= req_dt:
+                response_hours.append((lg_dt - req_dt).total_seconds() / 3600.0)
+        else:
+            pending += 1
+            recent_unanswered.append({
+                "id": r.id,
+                "date": r.date,
+                "grade": r.grade,
+                "class_num": r.class_num,
+                "number": r.number,
+                "name": r.name,
+                "topic": r.topic,
+            })
+
+    # 최근 30일 교사 활동 수
+    for lg in logs:
+        lg_dt = parse_dt(lg.date)
+        if lg_dt and lg_dt >= d30:
+            teacher_activity_30d[lg.teacher_name] = teacher_activity_30d.get(lg.teacher_name, 0) + 1
+
+    # 기간별 카운트
+    today = now.date()
+    today_cnt = sum(1 for r in requests if (parse_dt(r.date) or now).date() == today)
+    week_cnt = sum(1 for r in requests if (parse_dt(r.date) or now) >= d7)
+    month_cnt = sum(1 for r in requests if (parse_dt(r.date) or now) >= d30)
+
+    # 상위 토픽 TOP5
+    top_topics = sorted(by_topic.items(), key=lambda kv: kv[1], reverse=True)[:5]
+
+    # 미답변 최신 10건
+    recent_unanswered.sort(key=lambda x: x["date"], reverse=True)
+    recent_unanswered = recent_unanswered[:10]
+
+    avg_response_h = round(sum(response_hours)/len(response_hours), 2) if response_hours else None
+    handled_rate = round(handled / total * 100, 2) if total else 0.0
+    parent_ratio = round(parent_cnt / total * 100, 2) if total else 0.0
+    student_ratio = round(student_cnt / total * 100, 2) if total else 0.0
+
+    # 보기 좋게
+    by_grade_class_pretty = {}
+    for (g, c), n in by_grade_class.items():
+        by_grade_class_pretty.setdefault(g, {})[c] = n
+
+    stats = {
+        "total": total,
+        "handled": handled,
+        "pending": pending,
+        "handled_rate": handled_rate,
+        "today": today_cnt,
+        "last7d": week_cnt,
+        "last30d": month_cnt,
+
+        "by_topic": by_topic,
+        "top_topics": top_topics,
+        "by_grade": by_grade,
+        "by_grade_class": by_grade_class_pretty,
+
+        "recent_unanswered": recent_unanswered,
+        "teacher_activity_30d": dict(sorted(teacher_activity_30d.items(), key=lambda kv: kv[1], reverse=True)),
+
+        "applicant": {
+            "student": student_cnt,
+            "parent": parent_cnt,
+            "student_ratio": student_ratio,
+            "parent_ratio": parent_ratio,
+        },
+
+        "avg_response_hours": avg_response_h,
+    }
+
+    # (하위호환) 기존 키도 같이 넘김
+    topic_count = by_topic
+    grade_count = by_grade
+
+    return render_template('statistics.html',
+                           stats=stats,
+                           topic_count=topic_count,
+                           grade_count=grade_count)
+
+# JSON 통계 (선택 사용)
+@app.get('/api/stats')
+def api_stats():
+    if 'teacher_id' not in session:
+        return jsonify({"ok": False, "error": "login required"}), 401
+
+    requests = ConsultRequest.query.all()
+    logs = ConsultLog.query.all()
+
+    log_by_req_id = {}
+    for lg in logs:
+        log_by_req_id.setdefault(lg.request_id, lg)
+
+    now = datetime.now(KST)
+    d7 = now - timedelta(days=7)
+    d30 = now - timedelta(days=30)
+
+    total = len(requests)
+    handled = sum(1 for r in requests if r.id in log_by_req_id)
+    pending = total - handled
+    today_cnt = sum(1 for r in requests if (parse_dt(r.date) or now).date() == now.date())
+    week_cnt = sum(1 for r in requests if (parse_dt(r.date) or now) >= d7)
+    month_cnt = sum(1 for r in requests if (parse_dt(r.date) or now) >= d30)
+
+    by_topic, by_grade = {}, {}
+    parent_cnt = 0
+    student_cnt = 0
+    response_hours = []
+
+    for r in requests:
+        by_topic[r.topic] = by_topic.get(r.topic, 0) + 1
+        by_grade[r.grade] = by_grade.get(r.grade, 0) + 1
+        if r.content.strip().startswith('[관계:'):
+            parent_cnt += 1
+        else:
+            student_cnt += 1
+
+        lg = log_by_req_id.get(r.id)
+        if lg:
+            rd = parse_dt(r.date)
+            ld = parse_dt(lg.date)
+            if rd and ld and ld >= rd:
+                response_hours.append((ld - rd).total_seconds() / 3600.0)
+
+    avg_response_h = round(sum(response_hours)/len(response_hours), 2) if response_hours else None
+    handled_rate = round(handled / total * 100, 2) if total else 0.0
+
+    return jsonify({
+        "ok": True,
+        "total": total,
+        "handled": handled,
+        "pending": pending,
+        "handled_rate": handled_rate,
+        "today": today_cnt,
+        "last7d": week_cnt,
+        "last30d": month_cnt,
+        "by_topic": by_topic,
+        "by_grade": by_grade,
+        "applicant": {"student": student_cnt, "parent": parent_cnt},
+        "avg_response_hours": avg_response_h,
+    })
 
 @app.route('/question_template', methods=['GET', 'POST'])
 def question_template():
@@ -352,13 +538,12 @@ def approve_teachers():
     unapproved = Teacher.query.filter_by(is_approved=False).all()
     return render_template('approve_teachers.html', teachers=unapproved)
 
-# - 기존 템플릿 materials.html 사용 시 안내만 표시하도록 유지
 # 📂 상담자료실 - 외부 사이트로 리다이렉트
 @app.route('/materials')
 def materials():
     if 'teacher_id' not in session:
         return redirect('/teacher_login')
-    target_url = "https://sites.google.com/paju.es.kr/mindtalkhub"  # 필요하면 뒤에 /home
+    target_url = "https://sites.google.com/paju.es.kr/mindtalkhub"
     return redirect(target_url, code=302)
 
 @app.route('/teacher/update_date', methods=['POST'])
@@ -384,11 +569,7 @@ def update_consult_date():
         return redirect(url_for('consult_list'))
 
     # 여러 형식 허용
-    candidates = [
-        raw,
-        raw.replace('T', ' '),
-        raw.replace('/', '-'),
-    ]
+    candidates = [raw, raw.replace('T', ' '), raw.replace('/', '-')]
     dt = None
     for s in candidates:
         for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M', '%Y/%m/%d %H:%M', '%Y.%m.%d %H:%M'):
@@ -405,7 +586,6 @@ def update_consult_date():
         m = re.search(r'(\d{4})\D?(\d{1,2})\D?(\d{1,2})\D+(\d{1,2})\D?(\d{1,2})', raw)
         if m:
             y, mo, d, h, mi = map(int, m.groups())
-            # 값 범위 간단 보정
             mo = max(1, min(12, mo))
             d = max(1, min(31, d))
             h = max(0, min(23, h))
@@ -421,7 +601,7 @@ def update_consult_date():
     flash('상담 신청일을 수정했습니다.')
     return redirect(url_for('consult_list'))
 
-# === PATCH: 500 에러 핸들러(로그 남김) ===
+# === 500 에러 핸들러(로그 남김) ===
 @app.errorhandler(500)
 def handle_500(e):
     app.logger.exception('Server Error')
