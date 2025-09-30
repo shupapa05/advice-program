@@ -317,10 +317,17 @@ def statistics():
     requests = ConsultRequest.query.all()
     logs = ConsultLog.query.all()
 
-    # id -> 첫 로그
+    # id -> 첫 로그(가능하면 더 이른 시간으로 갱신)
     log_by_req_id = {}
     for lg in logs:
-        log_by_req_id.setdefault(lg.request_id, lg)
+        cur = log_by_req_id.get(lg.request_id)
+        if not cur:
+            log_by_req_id[lg.request_id] = lg
+        else:
+            cur_dt = parse_dt(cur.date)
+            lg_dt = parse_dt(lg.date)
+            if cur_dt and lg_dt and lg_dt < cur_dt:
+                log_by_req_id[lg.request_id] = lg
 
     now = datetime.now(KST)
     d7 = now - timedelta(days=7)
@@ -340,7 +347,8 @@ def statistics():
 
     for r in requests:
         # 신청자 유형
-        if r.content.strip().startswith('[관계:'):
+        content = (r.content or "").strip()
+        if content.startswith('[관계:'):
             parent_cnt += 1
         else:
             student_cnt += 1
@@ -382,11 +390,12 @@ def statistics():
     week_cnt = sum(1 for r in requests if (parse_dt(r.date) or now) >= d7)
     month_cnt = sum(1 for r in requests if (parse_dt(r.date) or now) >= d30)
 
-    # 상위 토픽 TOP5
+    # ✅ 상위 목록은 파이썬에서 미리 계산(템플릿 슬라이싱 금지)
     top_topics = sorted(by_topic.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    top_teachers_30d = sorted(teacher_activity_30d.items(), key=lambda kv: kv[1], reverse=True)[:5]
 
-    # 미답변 최신 10건
-    recent_unanswered.sort(key=lambda x: x["date"], reverse=True)
+    # 미답변 최신 10건(문자열 정렬 대신 날짜로 정렬)
+    recent_unanswered.sort(key=lambda x: (parse_dt(x["date"]) or now), reverse=True)
     recent_unanswered = recent_unanswered[:10]
 
     avg_response_h = round(sum(response_hours)/len(response_hours), 2) if response_hours else None
@@ -409,12 +418,13 @@ def statistics():
         "last30d": month_cnt,
 
         "by_topic": by_topic,
-        "top_topics": top_topics,
+        "top_topics": top_topics,                 # ← 템플릿에서 이걸 사용
         "by_grade": by_grade,
         "by_grade_class": by_grade_class_pretty,
 
         "recent_unanswered": recent_unanswered,
         "teacher_activity_30d": dict(sorted(teacher_activity_30d.items(), key=lambda kv: kv[1], reverse=True)),
+        "top_teachers_30d": top_teachers_30d,     # ← 템플릿에서 이걸 사용
 
         "applicant": {
             "student": student_cnt,
@@ -430,10 +440,13 @@ def statistics():
     topic_count = by_topic
     grade_count = by_grade
 
-    return render_template('statistics.html',
-                           stats=stats,
-                           topic_count=topic_count,
-                           grade_count=grade_count)
+    return render_template(
+        'statistics.html',
+        stats=stats,
+        topic_count=topic_count,
+        grade_count=grade_count
+    )
+
 
 # JSON 통계 (선택 사용)
 @app.get('/api/stats')
