@@ -33,6 +33,16 @@ KST = ZoneInfo("Asia/Seoul")
 def now_kst_str():
     return datetime.now(KST).strftime('%Y-%m-%d %H:%M')
 
+# HTML datetime-local ↔ 문자열 변환 (앱 기본 포맷과 호환)
+def _to_input_value(dt_str_or_none):
+    dt = parse_dt(dt_str_or_none) if dt_str_or_none else datetime.now(KST)
+    return dt.astimezone(KST).strftime("%Y-%m-%dT%H:%M")  # input[type=datetime-local] 값
+
+def _from_input_value(inp):
+    # '2025-09-30T12:15' -> '2025-09-30 12:15'
+    return inp.replace('T', ' ') if inp else datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+
+
 # 문자열 날짜 -> datetime (KST) 공통 파서
 def parse_dt(s: str):
     """consulting.db 안 문자열 날짜를 datetime으로 파싱(KST 기준). 실패하면 None."""
@@ -278,6 +288,9 @@ def consult_list():
                            requests=result,
                            edit_date_enabled=EDIT_DATE_ENABLED)
 
+# 기능 토글 (원하면 False로 끄기)
+FEATURE_LOG_DATE_EDIT = True
+
 @app.route('/write_log/<int:req_id>', methods=['GET', 'POST'])
 def write_log(req_id):
     if 'teacher_id' not in session:
@@ -286,25 +299,56 @@ def write_log(req_id):
     request_data = ConsultRequest.query.get_or_404(req_id)
     log = ConsultLog.query.filter_by(request_id=req_id).first()
 
+    # ── datetime-local <-> 문자열 헬퍼 (최소 수정)
+    def to_input_value(dt_str):
+        if dt_str:
+            return str(dt_str).replace(' ', 'T')[:16]
+        return datetime.now(KST).strftime('%Y-%m-%dT%H:%M')
+
+    def from_input_value(inp):
+        return inp.replace('T', ' ') if inp else now_kst_str()
+
     if request.method == 'POST':
-        memo = request.form['memo']
+        memo = request.form.get('memo', '').strip()
+        apply_dt = request.form.get('apply_dt') == 'on'   # 체크됐을 때만 적용
+        log_dt_input = request.form.get('log_dt') if apply_dt else None
+        new_date_str = from_input_value(log_dt_input) if log_dt_input else None
 
         if log:
             log.memo = memo
-            log.date = now_kst_str()
+            if new_date_str:
+                log.date = new_date_str    # 체크된 경우만 날짜 변경
         else:
             log = ConsultLog(
                 request_id=req_id,
-                teacher_name=session['teacher_username'],
+                teacher_name=session.get('teacher_username'),
                 memo=memo,
-                date=now_kst_str()
+                date=new_date_str or now_kst_str()  # 미체크 시 현재시각
             )
             db.session.add(log)
 
         db.session.commit()
         return redirect('/consult_list')
 
-    return render_template('write_log.html', request_data=request_data, log=log)
+    # GET: 편리한 표시 옵션
+    show_dt_edit = FEATURE_LOG_DATE_EDIT or (request.args.get('edit_dt') == '1')
+    default_dt_input = to_input_value(log.date if log else None)
+
+    return render_template(
+        'write_log.html',
+        request_data=request_data,
+        log=log,
+        default_dt_input=default_dt_input,
+        show_dt_edit=show_dt_edit   # ← 템플릿에서 토글 제어
+    )
+
+    # GET: 입력 기본값(기존 기록 있으면 그 시각, 없으면 현재)
+    default_dt_input = _to_input_value(log.date if log else None)
+    return render_template('write_log.html',
+                           request_data=request_data,
+                           log=log,
+                           default_dt_input=default_dt_input)   # ← 추가 전달
+
 
 # ===========================
 #     통계 강화된 버전
