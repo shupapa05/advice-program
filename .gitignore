@@ -1,0 +1,22 @@
+# secrets
+.env
+credentials.json
+*service-account*.json
+client_secret*.json
+
+# databases
+instance/
+*.db
+*.sqlite*
+
+# dev junk
+__pycache__/
+*.py[cod]
+venv/
+.vscode/
+.idea/
+.DS_Store
+
+# allow seed db only
+!seed/
+!seed/*.db
