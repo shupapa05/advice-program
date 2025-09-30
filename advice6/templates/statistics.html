@@ -107,12 +107,17 @@
         <thead><tr><th>주제</th><th>건수</th></tr></thead>
         <tbody>
         {% if top_topics %}
+          {# 백엔드에서 넘긴 상위 5개 #}
           {% for t, n in top_topics %}
           <tr><td>{{ t }}</td><td>{{ n }}</td></tr>
           {% endfor %}
         {% else %}
-          {% for t, n in by_topic|dictsort(by='value', reverse=True)[:5] %}
-          <tr><td>{{ t }}</td><td>{{ n }}</td></tr>
+          {# ⚠️ 슬라이싱 사용 금지: dictsort 후 첫 5개만 출력 #}
+          {% set ordered = by_topic|dictsort(by='value', reverse=True) %}
+          {% for t, n in ordered %}
+            {% if loop.index0 < 5 %}
+              <tr><td>{{ t }}</td><td>{{ n }}</td></tr>
+            {% endif %}
           {% endfor %}
         {% endif %}
         </tbody>
