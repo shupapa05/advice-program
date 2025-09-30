@@ -1,0 +1,16 @@
+# 비밀/자격증명
+credentials.json
+*service-account*.json
+client_secret*.json
+.env
+
+# DB/캐시/개발환경
+instance/
+*.db
+*.sqlite3
+__pycache__/
+*.py[cod]
+venv/
+.vscode/
+.idea/
+.DS_Store

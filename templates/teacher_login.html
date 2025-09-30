@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>교사 로그인</title>
+  <style>
+    body {
+      font-family: 'Nanum Gothic', sans-serif;
+      max-width: 500px;
+      margin: 80px auto;
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+    h2 { text-align: center; }
+    form { margin-top: 30px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 0 5px rgba(0,0,0,0.1); }
+    label { display: block; margin-top: 15px; font-weight: bold; }
+    input { width: 100%; padding: 10px; margin-top: 5px; border-radius: 6px; border: 1px solid #ccc; }
+    button { margin-top: 25px; padding: 10px 25px; background-color: #7ed6df; color: white; border: none; border-radius: 8px; }
+    button:hover { background-color: #22a6b3; }
+    .link { margin-top: 20px; text-align: center; }
+    .error {
+      color: #e74c3c;
+      font-weight: bold;
+      text-align: center;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <h2>👨‍🏫 교사 로그인</h2>
+
+  {% if message %}
+    <div class="error">{{ message }}</div>
+  {% endif %}
+
+  <form method="POST">
+    <label>아이디</label>
+    <input type="text" name="username" required>
+
+    <label>비밀번호</label>
+    <input type="password" name="password" required>
+
+    <button type="submit">로그인</button>
+  </form>
+
+  <div class="link">
+    <p>계정이 없으신가요? <a href="/teacher_signup">회원가입</a></p>
+  </div>
+</body>
+</html>
