@@ -20,3 +20,5 @@ venv/
 # allow seed db only
 !seed/
 !seed/*.db
+
+**/instance/
