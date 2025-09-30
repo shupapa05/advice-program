@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import os, re, logging
 from zoneinfo import ZoneInfo
+KST = ZoneInfo("Asia/Seoul")
 
 app = Flask(__name__)
 
