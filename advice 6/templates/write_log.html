@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>상담일지 작성</title>
+  <style>
+    body {
+      font-family: 'Nanum Gothic', sans-serif;
+      max-width: 700px;
+      margin: 60px auto;
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .box {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .field {
+      margin-bottom: 20px;
+    }
+    .label {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .value {
+      background: #f1f2f6;
+      padding: 10px;
+      border-radius: 6px;
+    }
+    textarea {
+      width: 100%;
+      height: 150px;
+      padding: 10px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      resize: vertical;
+    }
+    .btn {
+      display: inline-block;
+      margin-top: 30px;
+      padding: 12px 24px;
+      background-color: #7ed6df;
+      color: white;
+      border-radius: 8px;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .btn:hover {
+      background-color: #22a6b3;
+    }
+  </style>
+</head>
+<body>
+  <h2>📝 상담일지 작성</h2>
+  <div class="box">
+    <div class="field"><span class="label">신청자</span>
+      <div class="value">{{ request_data.grade }}학년 {{ request_data.class_num }}반 {{ request_data.number }}번 {{ request_data.name }}</div>
+    </div>
+
+    <div class="field"><span class="label">상담 영역</span>
+      <div class="value">{{ request_data.category }}</div>
+    </div>
+
+    <div class="field"><span class="label">주제</span>
+      <div class="value">{{ request_data.topic }}</div>
+    </div>
+
+    <div class="field"><span class="label">신청 내용</span>
+      <div class="value">{{ request_data.content }}</div>
+    </div>
+
+    <form method="post">
+      <div class="field"><span class="label">상담 내용</span>
+        <textarea name="memo" placeholder="상담 내용을 입력하세요">{{ log.memo if log else '' }}</textarea>
+      </div>
+      <div style="text-align: center;">
+        <button type="submit" class="btn">💾 저장하기</button>
+        <a href="/consult_list" class="btn">📂 목록으로</a>
+      </div>
+    </form>
+  </div>
+</body>
+</html>
