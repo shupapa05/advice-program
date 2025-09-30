@@ -2,7 +2,7 @@ import os, sys, shutil, traceback
 from flask import Flask
 
 BASE = os.path.dirname(__file__)
-sys.path.insert(0, BASE)
+sys.path.insert(0, BASE)  # 루트를 import 경로에 추가
 
 # ----- 시드 DB 자동 복원 -----
 SEED   = os.path.join(BASE, "seed", "consulting-seed.db")
