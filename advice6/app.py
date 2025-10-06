@@ -9,6 +9,7 @@ app = Flask(__name__)
 
 # 기능 토글: 신청일 수정 보이기/숨기기
 EDIT_DATE_ENABLED = os.getenv('EDIT_DATE_ENABLED', '1') == '1'
+EDIT_LOG_DATE_ENABLED = os.getenv('EDIT_LOG_DATE_ENABLED', '0') == '1'  # ← 교사 답변일(기본: 숨김)
 
 # === SECRET_KEY 환경변수 우선 ===
 app.secret_key = os.getenv('SECRET_KEY', 'your_secret_key')
@@ -289,7 +290,7 @@ def consult_list():
                            edit_date_enabled=EDIT_DATE_ENABLED)
 
 # 기능 토글 (원하면 False로 끄기)
-FEATURE_LOG_DATE_EDIT = True
+FEATURE_LOG_DATE_EDIT = EDIT_LOG_DATE_ENABLED
 
 @app.route('/write_log/<int:req_id>', methods=['GET', 'POST'])
 def write_log(req_id):
