@@ -289,7 +289,7 @@ def consult_list():
                            edit_date_enabled=EDIT_DATE_ENABLED)
 
 # 기능 토글 (원하면 False로 끄기)
-FEATURE_LOG_DATE_EDIT = True
+FEATURE_LOG_DATE_EDIT = False
 
 @app.route('/write_log/<int:req_id>', methods=['GET', 'POST'])
 def write_log(req_id):
