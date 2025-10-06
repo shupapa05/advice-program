@@ -44,11 +44,19 @@
       <div class="value">{{ request_data.content }}</div>
     </div>
 
+    <!-- ✅ 답변 날짜는 항상 표시 (편집 여부와 무관) -->
+    <div class="field">
+      <span class="label">답변 날짜</span>
+      <div class="value">
+        {{ (log.date if log else default_dt_input|replace('T',' ')) }}
+      </div>
+    </div>
+
     <form method="post">
-      {# ───────── 날짜/시간 수정 블록 (토글) ───────── #}
+      {# ───────── 날짜/시간 수정 블록: 환경(백엔드) 토글에만 따름 ───────── #}
       {% if show_dt_edit %}
       <div class="field">
-        <details id="dt-edit" {% if request.args.get('edit_dt') == '1' %}open{% endif %}>
+        <details id="dt-edit" open>
           <summary>⏱ 날짜/시간 수정</summary>
           <div style="margin-top:10px">
             <label class="label" for="log_dt">처리(기록) 시각</label>
@@ -59,10 +67,6 @@
             <div class="help">체크하지 않으면 기존 시각(또는 현재 시각)으로 저장됩니다.</div>
           </div>
         </details>
-      </div>
-      {% else %}
-      <div class="field" style="text-align:right">
-        <a class="btn" href="{{ url_for('write_log', req_id=request_data.id) }}?edit_dt=1">⏱ 날짜 수정 켜기</a>
       </div>
       {% endif %}
 
