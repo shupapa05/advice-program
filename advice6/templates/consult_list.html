@@ -4,42 +4,33 @@
   <meta charset="UTF-8" />
   <title>상담 신청 내역</title>
   <style>
-    :root{
-      --teal:#22a6b3; --teal-dark:#1e90a1;
-      --head:#7ed6df; --bg:#f8f9fa; --dot-pending:#fbbf24; --dot-done:#10b981;
-    }
-    body{font-family:'Nanum Gothic',sans-serif;max-width:1200px;margin:50px auto;padding:20px;background:var(--bg)}
-    h2{display:flex;justify-content:space-between;align-items:center;margin:0 0 18px}
-    .right a.btn{margin-left:8px}
+    body{font-family:'Nanum Gothic',sans-serif;max-width:1100px;margin:60px auto;padding:20px;background:#f7f7fb}
+    h2{text-align:center;margin-bottom:18px}
     .msg{text-align:center;margin:10px 0 22px;color:#0b7285;font-weight:600}
     table{width:100%;border-collapse:collapse;background:#fff}
-    th,td{padding:10px;border:1px solid #ddd;text-align:center;vertical-align:middle}
-    th{background:var(--head);color:#fff}
-    tr:nth-child(even){background:#f7f9fb}
-    td.txt-left{text-align:left}
-    .btn{padding:6px 14px;background:var(--teal);color:#fff;border:none;border-radius:6px;text-decoration:none;display:inline-block;cursor:pointer}
-    .btn:hover{background:var(--teal-dark)}
+    th,td{padding:10px;border:1px solid #ddd;text-align:center}
+    th{background:#7ed6df;color:#fff}
+    tr:nth-child(even){background:#f6fafe}
+    .btn{padding:6px 14px;background:#22a6b3;color:#fff;border:none;border-radius:6px;text-decoration:none;display:inline-block}
+    .btn:hover{background:#1e90a1}
     .date-form{display:flex;gap:6px;align-items:center;justify-content:center}
-    .date-input{width:160px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
+    .date-input{width:170px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
     .date-submit{padding:6px 10px;border:none;border-radius:6px;background:#6c5ce7;color:#fff;cursor:pointer}
     .date-submit:hover{background:#5a4bd6}
-    .status-dot{display:inline-block;width:12px;height:12px;border-radius:50%}
-    .pending{background:var(--dot-pending)}
-    .done{background:var(--dot-done)}
-    /* pagination */
-    .pagi{display:flex;justify-content:center;gap:6px;margin:16px 0}
-    .pagi button{min-width:34px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer}
-    .pagi button.active{background:#111827;color:#fff;border-color:#111827}
-    .pagi button[disabled]{opacity:.5;cursor:not-allowed}
+    .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px}
+    .badge-wait{background:#fff3cd;color:#9c6b00;border:1px solid #ffe08a}
+    .badge-done{background:#e6fcf5;color:#0b7285;border:1px solid #96f2d7}
+    .pagination{margin:18px 0;display:flex;gap:6px;justify-content:center}
+    .page-btn{padding:6px 10px;border:1px solid #ccc;border-radius:6px;text-decoration:none;color:#333;background:#fff}
+    .page-btn.on{background:#22a6b3;color:#fff;border-color:#22a6b3}
+    .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
   </style>
 </head>
 <body>
-  <h2>
-    <span>📂 상담 신청 내역</span>
-    <span class="right">
-      <a href="/teacher_home" class="btn">🏠 교사 홈</a>
-    </span>
-  </h2>
+  <div class="toolbar">
+    <h2>📂 상담 신청 내역</h2>
+    <a href="/teacher_home" class="btn">🏠 교사 홈</a>
+  </div>
 
   {% with messages = get_flashed_messages() %}
     {% if messages %}
@@ -49,29 +40,22 @@
     {% endif %}
   {% endwith %}
 
-  <table id="reqTable">
+  <table>
     <thead>
       <tr>
         <th>{{ '신청일(수정)' if edit_date_enabled else '신청일' }}</th>
         <th>학년</th><th>반</th><th>번호</th><th>이름</th>
-        <th>주제</th><th>내용</th>
-        <th style="width:70px">상태</th>
-        <th style="width:90px">작성</th>
+        <th>주제</th><th>내용</th><th>상태</th><th>작성</th>
       </tr>
     </thead>
-    <tbody id="reqTbody">
+    <tbody>
       {% for r in requests %}
-      <tr class="data-row"
-          data-grade="{{ r.grade }}"
-          data-class="{{ r.class_num }}"
-          data-number="{{ r.number }}"
-          data-name="{{ r.name|e }}"
-          data-topic="{{ r.topic|e }}"
-          data-haslog="{{ 1 if r.btn_label=='수정' else 0 }}">
+      <tr>
         <td>
           {% if edit_date_enabled %}
           <form class="date-form" action="/teacher/update_date" method="post">
             <input type="hidden" name="id" value="{{ r.id }}" />
+            <input type="hidden" name="page" value="{{ page }}" />
             <input class="date-input" type="datetime-local" name="date"
                    value="{{ r.date|replace(' ', 'T') }}" step="60" required />
             <button class="date-submit" type="submit">수정</button>
@@ -85,72 +69,30 @@
         <td>{{ r.number }}</td>
         <td>{{ r.name }}</td>
         <td>{{ r.topic }}</td>
-        <td class="txt-left">{{ r.content }}</td>
-
-        <!-- 상태: 점만 표시 (서버에서 기본 판정) -->
+        <td style="text-align:left">{{ r.content }}</td>
         <td>
-          {% if r.btn_label == '수정' %}
-            <span class="status-dot done" title="작성됨"></span>
+          {% if r.has_log %}
+            <span class="badge badge-done">✅ 완료</span>
           {% else %}
-            <span class="status-dot pending" title="미작성"></span>
+            <span class="badge badge-wait">🟡 대기</span>
           {% endif %}
         </td>
-
-        <!-- 버튼: 서버 판정 값 사용 -->
         <td>
-          <a class="btn" href="/write_log/{{ r.id }}">{{ r.btn_label }}</a>
+          <a class="btn" href="{{ url_for('write_log', req_id=r.id, page=page) }}">{{ r.btn_label }}</a>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 
-  <!-- 페이지네이션 -->
-  <div class="pagi" id="pagi"></div>
-
-  <script>
-    // ====== 간단 페이지네이션 (8행씩) ======
-    (function(){
-      const ROWS_PER_PAGE = 8;
-      const tbody = document.getElementById('reqTbody');
-      const rows = Array.from(tbody.querySelectorAll('tr.data-row'));
-      const total = rows.length;
-      const pages = Math.max(1, Math.ceil(total / ROWS_PER_PAGE));
-      let cur = 1;
-
-      const pagi = document.getElementById('pagi');
-      function renderPagi(){
-        pagi.innerHTML = '';
-        const prev = document.createElement('button');
-        prev.textContent = '‹';
-        prev.disabled = (cur===1);
-        prev.onclick = ()=>{cur=Math.max(1,cur-1); render();};
-        pagi.appendChild(prev);
-
-        for(let i=1;i<=pages;i++){
-          const b=document.createElement('button');
-          b.textContent=i;
-          if(i===cur) b.classList.add('active');
-          b.onclick=()=>{cur=i; render();};
-          pagi.appendChild(b);
-        }
-
-        const next = document.createElement('button');
-        next.textContent = '›';
-        next.disabled = (cur===pages);
-        next.onclick = ()=>{cur=Math.min(pages,cur+1); render();};
-        pagi.appendChild(next);
-      }
-
-      function render(){
-        rows.forEach((tr,idx)=>{
-          const page = Math.floor(idx/ROWS_PER_PAGE)+1;
-          tr.style.display = (page===cur)?'':'none';
-        });
-        renderPagi();
-      }
-      render();
-    })();
-  </script>
+  <div class="pagination">
+    {% for p in range(1, page_count + 1) %}
+      {% if p == page %}
+        <span class="page-btn on">{{ p }}</span>
+      {% else %}
+        <a class="page-btn" href="{{ url_for('consult_list', page=p) }}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+  </div>
 </body>
 </html>
