@@ -2,165 +2,55 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>상담일지 작성</title>
+  <title>상담 기록 {{ '수정' if log else '작성' }}</title>
   <style>
-    body { font-family: 'Nanum Gothic', sans-serif; max-width: 700px; margin: 60px auto; padding: 20px; background:#f8f9fa; }
-    h2 { text-align:center; margin-bottom:30px; }
-    .box { background:#fff; padding:30px; border-radius:12px; box-shadow:0 0 10px rgba(0,0,0,.1); }
-    .field { margin-bottom:20px; }
-    .label { font-weight:700; margin-bottom:6px; display:block; }
-    .value { background:#f1f2f6; padding:10px; border-radius:6px; word-break:break-word; }
-    textarea, input[type="datetime-local"] { width:100%; padding:10px; font-size:14px; border:1px solid #ccc; border-radius:6px; box-sizing:border-box; }
-    textarea { height:150px; resize:vertical; }
-    .help { color:#666; font-size:12px; margin-top:6px; }
-    .btn { display:inline-block; margin-top:30px; padding:12px 24px; background:#7ed6df; color:#fff; border-radius:8px; text-decoration:none; border:none; cursor:pointer; font-size:16px; }
-    .btn:hover { background:#22a6b3; }
-    .btn-row { text-align:center; gap:8px; display:flex; justify-content:center; flex-wrap:wrap; }
-    details { background:#f7fafc; border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
-    details > summary { cursor:pointer; font-weight:600; }
-    .inline { display:inline-block; margin-left:8px; }
+    body{font-family:'Nanum Gothic',sans-serif;max-width:900px;margin:60px auto;padding:20px;background:#f7f7fb}
+    h2{text-align:center;margin-bottom:14px}
+    .card{background:#fff;border:1px solid #e9ecef;border-radius:10px;padding:16px;margin-bottom:12px}
+    .row{display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center;margin:6px 0}
+    textarea{width:100%;min-height:160px;padding:10px;border:1px solid #ced4da;border-radius:8px;font:inherit}
+    input[type="datetime-local"]{padding:6px 8px;border:1px solid #ced4da;border-radius:8px;font:inherit}
+    .btn{display:inline-block;padding:10px 18px;border-radius:8px;text-decoration:none;border:none;cursor:pointer}
+    .btn-primary{background:#22a6b3;color:#fff}
+    .btn-outline{background:#fff;border:1px solid #adb5bd;color:#495057}
+    .actions{display:flex;gap:8px;justify-content:center;margin-top:14px}
+    .meta{color:#666}
   </style>
 </head>
 <body>
-  <h2>📝 상담일지 작성</h2>
-  <div class="box">
-    <div class="field">
-      <span class="label">신청자</span>
-      <div class="value" id="req_student">{{ request_data.grade }}학년 {{ request_data.class_num }}반 {{ request_data.number }}번 {{ request_data.name }}</div>
-    </div>
+  <h2>📝 상담 기록 {{ '수정' if log else '작성' }}</h2>
 
-    <div class="field">
-      <span class="label">상담 영역</span>
-      <div class="value" id="req_category">{{ request_data.category }}</div>
-    </div>
-
-    <div class="field">
-      <span class="label">주제</span>
-      <div class="value" id="req_topic">{{ request_data.topic }}</div>
-    </div>
-
-    <div class="field">
-      <span class="label">신청 내용</span>
-      <div class="value" id="req_content">{{ request_data.content }}</div>
-    </div>
-
-    <!-- ✅ 답변 날짜는 항상 표시 (편집 여부와 무관) -->
-    <div class="field">
-      <span class="label">답변 날짜</span>
-      <div class="value" id="answer_date">
-        {{ (log.date if log else default_dt_input|replace('T',' ')) }}
-      </div>
-    </div>
-
-    <form id="logForm" method="post">
-      {% if show_dt_edit %}
-      <div class="field">
-        <details id="dt-edit" open>
-          <summary>⏱ 날짜/시간 수정</summary>
-          <div style="margin-top:10px">
-            <label class="label" for="log_dt">처리(기록) 시각</label>
-            <input id="log_dt" type="datetime-local" name="log_dt" value="{{ default_dt_input }}">
-            <label class="inline">
-              <input id="apply_dt" type="checkbox" name="apply_dt"> 이 날짜/시간으로 저장
-            </label>
-            <div class="help">체크하지 않으면 기존 시각(또는 현재 시각)으로 저장됩니다.</div>
-          </div>
-        </details>
-      </div>
-      {% endif %}
-
-      <div class="field">
-        <span class="label">상담 내용</span>
-        <textarea id="memo" name="memo" placeholder="상담 내용을 입력하세요">{{ log.memo if log else '' }}</textarea>
-      </div>
-
-      <div class="btn-row">
-        <button type="submit" class="btn">💾 저장하기</button>
-        <a href="/consult_list" class="btn">📂 목록으로</a>
-      </div>
-    </form>
+  <div class="card">
+    <div class="row"><div class="meta">신청자</div><div>{{ request_data.grade }}학년 {{ request_data.class_num }}반 {{ request_data.number }}번 {{ request_data.name }}</div></div>
+    <div class="row"><div class="meta">주제</div><div>{{ request_data.topic }}</div></div>
+    <div class="row" style="grid-template-columns:120px 1fr"><div class="meta">신청 내용</div><div style="white-space:pre-wrap">{{ request_data.content }}</div></div>
+    {% if log %}<div class="row"><div class="meta">기존 작성</div><div class="meta">{{ log.date }}</div></div>{% endif %}
   </div>
 
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+  <form method="post" class="card">
+    <input type="hidden" name="page" value="{{ back_page }}">
+    <div class="row" style="grid-template-columns:120px 1fr"><div class="meta">상담 내용</div>
+      <div><textarea name="memo" required>{{ log.memo if log else '' }}</textarea></div>
+    </div>
 
-  <script>
-    (function () {
-      // 항상 Firestore 사용
-      const firebaseConfig = {
-        apiKey: "AIzaSyBddJ-lxmjhIfYe-YR77wZrKRm6V5DeyE",
-        authDomain: "advice-e7ca2.firebaseapp.com",
-        projectId: "advice-e7ca2",
-      };
-      if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
-      const db = firebase.firestore();
-      db.enablePersistence({ synchronizeTabs: true }).catch(()=>{});
-      const COL = "counsel_records_v1";
+    {% if show_dt_edit %}
+    <div class="row"><div class="meta">기록 시각</div>
+      <div>
+        <label style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" name="apply_dt">
+          <span>아래 시각으로 저장</span>
+        </label>
+        <div style="margin-top:6px">
+          <input type="datetime-local" name="log_dt" value="{{ default_dt_input }}" step="60">
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
-      // 🔎 페이지 로드시: 서버 로그가 비어 있으면 Firestore 값으로 선기입(기존 작성내용 보이기)
-      document.addEventListener('DOMContentLoaded', async () => {
-        try {
-          const reqId = (location.pathname.match(/\/write_log\/(\d+)/) || [])[1] || null;
-          if (!reqId) return;
-          const snap = await db.collection(COL).doc('req_' + reqId).get();
-          if (!snap.exists) return;
-
-          const data = snap.data();
-          const memoEl = document.getElementById('memo');
-          if (memoEl && !memoEl.value.trim() && data.memo) memoEl.value = data.memo;
-
-          const ansEl = document.getElementById('answer_date');
-          const dtEl  = document.getElementById('log_dt');
-          if (data.dateISO) {
-            const d = new Date(data.dateISO);
-            if (ansEl) ansEl.textContent = isNaN(d) ? data.dateISO : d.toLocaleString('ko-KR');
-            if (dtEl) dtEl.value = isNaN(d) ? '' :
-              `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-          }
-        } catch (e) { console.warn('prefill 실패', e); }
-      });
-
-      // 🔁 저장: Firestore에 업서트 후 서버에도 그대로 submit
-      const form = document.getElementById('logForm');
-      form.addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        try {
-          const reqId = (location.pathname.match(/\/write_log\/(\d+)/) || [])[1] || null;
-          const docId = reqId ? `req_${reqId}` : (self.crypto?.randomUUID?.() ?? String(Date.now()));
-
-          const sInfo = document.getElementById('req_student').innerText.trim();
-          const category = document.getElementById('req_category').innerText.trim();
-          const topic = document.getElementById('req_topic').innerText.trim();
-          const reqContent = document.getElementById('req_content').innerText.trim();
-          const memo = document.getElementById('memo').value.trim();
-
-          const m = sInfo.match(/(\d+)학년\s+(\d+)반\s+(\d+)번\s+(.+)/);
-          const [ , grade, class_num, number, name ] = m || [null,'','','',sInfo];
-
-          const nowIso = new Date().toISOString();
-          const dtInputEl = document.getElementById('log_dt');
-          const apply = document.getElementById('apply_dt')?.checked;
-          const dateISO = (apply && dtInputEl?.value) ? new Date(dtInputEl.value).toISOString() : nowIso;
-
-          await db.collection(COL).doc(docId).set({
-            id: docId,
-            requestId: reqId,
-            grade, class_num, number, name,
-            category, topic,
-            requestContent: reqContent,
-            memo,
-            dateISO,
-            updatedAt: nowIso
-          }, { merge: true });
-
-        } catch (e) {
-          console.warn('Firestore 저장 오류(서버 저장은 계속 진행):', e);
-        } finally {
-          form.submit(); // ✅ 서버에도 저장(원래 동작 유지)
-        }
-      });
-    })();
-  </script>
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">저장</button>
+      <a class="btn btn-outline" href="{{ url_for('consult_list', page=back_page) }}">목록으로</a>
+    </div>
+  </form>
 </body>
 </html>
