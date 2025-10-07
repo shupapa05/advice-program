@@ -3,50 +3,36 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import os, re, logging
 from zoneinfo import ZoneInfo
+
 KST = ZoneInfo("Asia/Seoul")
 
 app = Flask(__name__)
 
-# 기능 토글: 신청일 수정 보이기/숨기기
-EDIT_DATE_ENABLED = os.getenv('EDIT_DATE_ENABLED', '1') == '1'
-EDIT_LOG_DATE_ENABLED = os.getenv('EDIT_LOG_DATE_ENABLED', '0') == '1'  # ← 교사 답변일(기본: 숨김)
+# 기능 토글
+EDIT_DATE_ENABLED = os.getenv('EDIT_DATE_ENABLED', '1') == '1'          # 신청일(서버 DB) 수정 폼
+EDIT_LOG_DATE_ENABLED = os.getenv('EDIT_LOG_DATE_ENABLED', '0') == '1'  # 교사 답변일 수정 UI
 
-# === SECRET_KEY 환경변수 우선 ===
+# Secret
 app.secret_key = os.getenv('SECRET_KEY', 'your_secret_key')
 
-# === DATABASE_URL / SQLITE_PATH 환경변수 우선 + sqlite 폴백 ===
+# DB 설정 (Postgres -> fallback SQLite)
 basedir = os.path.abspath(os.path.dirname(__file__))
-
-# SQLITE_PATH가 지정되어 있으면 해당 경로의 sqlite 파일 사용, 없으면 프로젝트 루트의 consulting.db 사용
 sqlite_path = os.getenv("SQLITE_PATH") or os.path.join(basedir, "consulting.db")
-
-# DATABASE_URL(예: Postgres)이 있으면 우선 사용, 없으면 위 sqlite를 사용
 database_url = os.getenv("DATABASE_URL") or ("sqlite:///" + sqlite_path.replace("\\", "/"))
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 db = SQLAlchemy(app)
 
-# === 로깅/KST 헬퍼 ===
+# 로깅
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
-KST = ZoneInfo("Asia/Seoul")
+
 def now_kst_str():
     return datetime.now(KST).strftime('%Y-%m-%d %H:%M')
 
-# HTML datetime-local ↔ 문자열 변환 (앱 기본 포맷과 호환)
-def _to_input_value(dt_str_or_none):
-    dt = parse_dt(dt_str_or_none) if dt_str_or_none else datetime.now(KST)
-    return dt.astimezone(KST).strftime("%Y-%m-%dT%H:%M")  # input[type=datetime-local] 값
-
-def _from_input_value(inp):
-    # '2025-09-30T12:15' -> '2025-09-30 12:15'
-    return inp.replace('T', ' ') if inp else datetime.now(KST).strftime("%Y-%m-%d %H:%M")
-
-
-# 문자열 날짜 -> datetime (KST) 공통 파서
+# 문자열 ↔ datetime 유틸
 def parse_dt(s: str):
-    """consulting.db 안 문자열 날짜를 datetime으로 파싱(KST 기준). 실패하면 None."""
+    """consulting.db 문자열 날짜를 datetime(KST)으로 파싱."""
     if not s:
         return None
     for fmt in ('%Y-%m-%d %H:%M', '%Y/%m/%d %H:%M', '%Y.%m.%d %H:%M', '%Y-%m-%dT%H:%M'):
@@ -55,6 +41,14 @@ def parse_dt(s: str):
         except ValueError:
             continue
     return None
+
+def _to_input_value(dt_str_or_none):
+    dt = parse_dt(dt_str_or_none) if dt_str_or_none else datetime.now(KST)
+    return dt.astimezone(KST).strftime("%Y-%m-%dT%H:%M")  # input[type=datetime-local] 값
+
+def _from_input_value(inp):
+    # '2025-09-30T12:15' -> '2025-09-30 12:15'
+    return inp.replace('T', ' ') if inp else datetime.now(KST).strftime("%Y-%m-%d %H:%M")
 
 # === 모델 ===
 class ConsultRequest(db.Model):
@@ -89,18 +83,17 @@ class QuestionTemplate(db.Model):
     teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     question = db.Column(db.Text, nullable=False)
 
-# === DB 자동 생성(폴백 sqlite일 때만) ===
-if (database_url.startswith('sqlite:///')
-    and not os.path.exists(sqlite_path)):
+# SQLite 자동 생성
+if (database_url.startswith('sqlite:///') and not os.path.exists(sqlite_path)):
     with app.app_context():
         db.create_all()
 
-# === 헬스체크(배포/슬립 대응) ===
+# 헬스체크
 @app.route('/healthz')
 def healthz():
     return {'ok': True, 'time_kst': now_kst_str()}, 200
 
-# === DB 점검용(선택) ===
+# DB 점검
 @app.get("/dbcheck")
 def dbcheck():
     try:
@@ -113,6 +106,7 @@ def dbcheck():
 def index():
     return render_template('index.html')
 
+# === 학생 신청 ===
 @app.route('/student_request', methods=['GET', 'POST'])
 def student_request():
     if request.method == 'POST':
@@ -133,7 +127,6 @@ def student_request():
             contact = request.form['contact']
             content = f"[관계: {relation}, 연락처: {contact}]\n{request.form['content']}"
 
-        # 주제 '기타' 처리
         topic = request.form['topic']
         if topic == '기타':
             topic = (request.form.get('custom_topic') or '').strip() or '기타'
@@ -155,6 +148,45 @@ def student_request():
 
     return render_template('student_request.html')
 
+# === 학생 신청 수정/삭제 ===
+@app.route('/student_request_edit/<int:req_id>', methods=['GET', 'POST'])
+def student_request_edit(req_id):
+    r = ConsultRequest.query.get_or_404(req_id)
+    if request.method == 'POST':
+        pw = request.form.get('password', '')
+        if r.password != pw:
+            flash('비밀번호가 올바르지 않습니다.')
+            return redirect(url_for('check_request'))
+        r.topic = (request.form.get('topic') or r.topic).strip()
+        r.content = (request.form.get('content') or r.content).strip()
+        db.session.commit()
+        flash('수정되었습니다.')
+        return redirect(url_for('check_request'))
+    # 간단 폼
+    return (f"""
+      <form method="post">
+        <p>비밀번호 확인: <input name="password" type="password" required></p>
+        <p>주제: <input name="topic" value="{r.topic}" style="width:400px"></p>
+        <p>내용:<br><textarea name="content" rows="8" cols="60">{r.content}</textarea></p>
+        <button type="submit">저장</button>
+        <a href="/check_request">취소</a>
+      </form>
+    """)
+
+@app.route('/student_request_delete/<int:req_id>', methods=['POST'])
+def student_request_delete(req_id):
+    r = ConsultRequest.query.get_or_404(req_id)
+    pw = request.form.get('password', '')
+    if r.password != pw:
+        flash('비밀번호가 올바르지 않습니다.')
+        return redirect(url_for('check_request'))
+    ConsultLog.query.filter_by(request_id=req_id).delete()
+    db.session.delete(r)
+    db.session.commit()
+    flash('삭제되었습니다.')
+    return redirect(url_for('check_request'))
+
+# === 내가 신청한 내역 보기 ===
 @app.route('/check_request', methods=['GET', 'POST'])
 def check_request():
     if request.method == 'POST':
@@ -165,11 +197,7 @@ def check_request():
         pw = request.form['password']
 
         matched = ConsultRequest.query.filter_by(
-            grade=grade,
-            class_num=class_num,
-            number=number,
-            name=name,
-            password=pw
+            grade=grade, class_num=class_num, number=number, name=name, password=pw
         ).all()
 
         data = []
@@ -190,6 +218,7 @@ def check_request():
 
     return render_template('check_request.html')
 
+# === 교사 인증/홈 ===
 @app.route('/teacher_signup', methods=['GET', 'POST'])
 def teacher_signup():
     if request.method == 'POST':
@@ -202,25 +231,17 @@ def teacher_signup():
 
         if signup_code != 'PAJU2025':
             return "올바른 가입 코드가 아닙니다."
-
         if password != confirm:
             return "비밀번호가 일치하지 않습니다."
-
-        existing = Teacher.query.filter_by(username=username).first()
-        if existing:
+        if Teacher.query.filter_by(username=username).first():
             return "이미 존재하는 아이디입니다."
 
         new_teacher = Teacher(
-            username=username,
-            password=password,
-            grade=grade,
-            class_num=class_num,
-            is_approved=False
+            username=username, password=password, grade=grade, class_num=class_num, is_approved=False
         )
         db.session.add(new_teacher)
         db.session.commit()
         return "가입이 완료되었습니다. 관리자의 승인 후 로그인할 수 있습니다."
-
     return render_template('teacher_signup.html')
 
 @app.route('/teacher_login', methods=['GET', 'POST'])
@@ -240,7 +261,6 @@ def teacher_login():
             return redirect('/teacher_home')
         else:
             return render_template("teacher_login.html", message="❌ 아이디 또는 비밀번호가 올바르지 않습니다.")
-
     return render_template('teacher_login.html')
 
 @app.route('/teacher_home')
@@ -249,6 +269,7 @@ def teacher_home():
         return redirect('/teacher_login')
     return render_template('teacher_home.html', username=session['teacher_username'])
 
+# === 담임용 목록(반 필터 + 스코프 전달) ===
 @app.route('/consult_list')
 def consult_list():
     if 'teacher_id' not in session:
@@ -257,10 +278,10 @@ def consult_list():
     grade = session['grade']
     class_num = session['class_num']
 
-    filtered_requests = ConsultRequest.query.filter_by(
-        grade=grade,
-        class_num=class_num
-    ).order_by(ConsultRequest.date.desc()).all()
+    filtered_requests = (ConsultRequest.query
+                         .filter_by(grade=grade, class_num=class_num)
+                         .order_by(ConsultRequest.date.desc())
+                         .all())
 
     result = []
     for r in filtered_requests:
@@ -269,7 +290,6 @@ def consult_list():
         btn_label = '수정' if log else '작성'
         is_parent = r.content.strip().startswith('[관계:')
         applicant_type = '👨‍👩‍👧 학부모' if is_parent else '👦 학생'
-
         result.append({
             'id': r.id,
             'date': r.date,
@@ -285,11 +305,16 @@ def consult_list():
             'answer': log.memo if log else ''
         })
 
-    return render_template('consult_list.html',
-                           requests=result,
-                           edit_date_enabled=EDIT_DATE_ENABLED)
+    # 🔴 프런트 JS(Firestore 병합)가 사용할 스코프를 함께 전달
+    return render_template(
+        'consult_list.html',
+        requests=result,
+        edit_date_enabled=EDIT_DATE_ENABLED,
+        filter_grade=grade,
+        filter_class=class_num
+    )
 
-# 기능 토글 (원하면 False로 끄기)
+# === 상담일지 작성/수정 ===
 FEATURE_LOG_DATE_EDIT = EDIT_LOG_DATE_ENABLED
 
 @app.route('/write_log/<int:req_id>', methods=['GET', 'POST'])
@@ -298,72 +323,56 @@ def write_log(req_id):
         return redirect('/teacher_login')
 
     request_data = ConsultRequest.query.get_or_404(req_id)
+
+    # 🔒 권한: 담임 반만 접근
+    if not (request_data.grade == session.get('grade') and
+            request_data.class_num == session.get('class_num')):
+        flash('이 반에 대한 권한이 없습니다.')
+        return redirect(url_for('consult_list'))
+
     log = ConsultLog.query.filter_by(request_id=req_id).first()
-
-    # ── datetime-local <-> 문자열 헬퍼 (최소 수정)
-    def to_input_value(dt_str):
-        if dt_str:
-            return str(dt_str).replace(' ', 'T')[:16]
-        return datetime.now(KST).strftime('%Y-%m-%dT%H:%M')
-
-    def from_input_value(inp):
-        return inp.replace('T', ' ') if inp else now_kst_str()
 
     if request.method == 'POST':
         memo = request.form.get('memo', '').strip()
-        apply_dt = request.form.get('apply_dt') == 'on'   # 체크됐을 때만 적용
-        log_dt_input = request.form.get('log_dt') if apply_dt else None
-        new_date_str = from_input_value(log_dt_input) if log_dt_input else None
+        apply_dt = request.form.get('apply_dt') == 'on'  # 체크됐을 때만 날짜 반영
+        new_date_str = _from_input_value(request.form.get('log_dt')) if apply_dt else None
 
         if log:
             log.memo = memo
             if new_date_str:
-                log.date = new_date_str    # 체크된 경우만 날짜 변경
+                log.date = new_date_str
         else:
             log = ConsultLog(
                 request_id=req_id,
                 teacher_name=session.get('teacher_username'),
                 memo=memo,
-                date=new_date_str or now_kst_str()  # 미체크 시 현재시각
+                date=new_date_str or now_kst_str()
             )
             db.session.add(log)
 
         db.session.commit()
         return redirect('/consult_list')
 
-    # GET: 편리한 표시 옵션
+    # GET
     show_dt_edit = FEATURE_LOG_DATE_EDIT or (request.args.get('edit_dt') == '1')
-    default_dt_input = to_input_value(log.date if log else None)
-
+    default_dt_input = _to_input_value(log.date if log else None)
     return render_template(
         'write_log.html',
         request_data=request_data,
         log=log,
         default_dt_input=default_dt_input,
-        show_dt_edit=show_dt_edit   # ← 템플릿에서 토글 제어
+        show_dt_edit=show_dt_edit
     )
 
-    # GET: 입력 기본값(기존 기록 있으면 그 시각, 없으면 현재)
-    default_dt_input = _to_input_value(log.date if log else None)
-    return render_template('write_log.html',
-                           request_data=request_data,
-                           log=log,
-                           default_dt_input=default_dt_input)   # ← 추가 전달
-
-
-# ===========================
-#     통계 강화된 버전
-# ===========================
+# === 통계 ===
 @app.route('/statistics')
 def statistics():
     if 'teacher_id' not in session:
         return redirect('/teacher_login')
 
-    # 원본 데이터
     requests = ConsultRequest.query.all()
     logs = ConsultLog.query.all()
 
-    # id -> 첫 로그(가능하면 더 이른 시간으로 갱신)
     log_by_req_id = {}
     for lg in logs:
         cur = log_by_req_id.get(lg.request_id)
@@ -392,7 +401,6 @@ def statistics():
     response_hours = []
 
     for r in requests:
-        # 신청자 유형
         content = (r.content or "").strip()
         if content.startswith('[관계:'):
             parent_cnt += 1
@@ -424,23 +432,19 @@ def statistics():
                 "topic": r.topic,
             })
 
-    # 최근 30일 교사 활동 수
     for lg in logs:
         lg_dt = parse_dt(lg.date)
         if lg_dt and lg_dt >= d30:
             teacher_activity_30d[lg.teacher_name] = teacher_activity_30d.get(lg.teacher_name, 0) + 1
 
-    # 기간별 카운트
     today = now.date()
     today_cnt = sum(1 for r in requests if (parse_dt(r.date) or now).date() == today)
     week_cnt = sum(1 for r in requests if (parse_dt(r.date) or now) >= d7)
     month_cnt = sum(1 for r in requests if (parse_dt(r.date) or now) >= d30)
 
-    # ✅ 상위 목록은 파이썬에서 미리 계산(템플릿 슬라이싱 금지)
     top_topics = sorted(by_topic.items(), key=lambda kv: kv[1], reverse=True)[:5]
     top_teachers_30d = sorted(teacher_activity_30d.items(), key=lambda kv: kv[1], reverse=True)[:5]
 
-    # 미답변 최신 10건(문자열 정렬 대신 날짜로 정렬)
     recent_unanswered.sort(key=lambda x: (parse_dt(x["date"]) or now), reverse=True)
     recent_unanswered = recent_unanswered[:10]
 
@@ -449,7 +453,6 @@ def statistics():
     parent_ratio = round(parent_cnt / total * 100, 2) if total else 0.0
     student_ratio = round(student_cnt / total * 100, 2) if total else 0.0
 
-    # 보기 좋게
     by_grade_class_pretty = {}
     for (g, c), n in by_grade_class.items():
         by_grade_class_pretty.setdefault(g, {})[c] = n
@@ -462,39 +465,25 @@ def statistics():
         "today": today_cnt,
         "last7d": week_cnt,
         "last30d": month_cnt,
-
         "by_topic": by_topic,
-        "top_topics": top_topics,                 # ← 템플릿에서 이걸 사용
+        "top_topics": top_topics,
         "by_grade": by_grade,
         "by_grade_class": by_grade_class_pretty,
-
         "recent_unanswered": recent_unanswered,
         "teacher_activity_30d": dict(sorted(teacher_activity_30d.items(), key=lambda kv: kv[1], reverse=True)),
-        "top_teachers_30d": top_teachers_30d,     # ← 템플릿에서 이걸 사용
-
+        "top_teachers_30d": top_teachers_30d,
         "applicant": {
             "student": student_cnt,
             "parent": parent_cnt,
             "student_ratio": student_ratio,
             "parent_ratio": parent_ratio,
         },
-
         "avg_response_hours": avg_response_h,
     }
+    return render_template('statistics.html', stats=stats,
+                           topic_count=by_topic, grade_count=by_grade)
 
-    # (하위호환) 기존 키도 같이 넘김
-    topic_count = by_topic
-    grade_count = by_grade
-
-    return render_template(
-        'statistics.html',
-        stats=stats,
-        topic_count=topic_count,
-        grade_count=grade_count
-    )
-
-
-# JSON 통계 (선택 사용)
+# JSON 통계
 @app.get('/api/stats')
 def api_stats():
     if 'teacher_id' not in session:
@@ -556,21 +545,21 @@ def api_stats():
         "avg_response_hours": avg_response_h,
     })
 
+# 질문 템플릿
 @app.route('/question_template', methods=['GET', 'POST'])
 def question_template():
     if 'teacher_id' not in session:
         return redirect('/teacher_login')
-
     if request.method == 'POST':
         question = request.form['question']
         new_q = QuestionTemplate(teacher_id=session['teacher_id'], question=question)
         db.session.add(new_q)
         db.session.commit()
         return redirect('/question_template')
-
     questions = QuestionTemplate.query.filter_by(teacher_id=session['teacher_id']).all()
     return render_template('question_template.html', questions=questions)
 
+# 답변 보기
 @app.route('/view_answer/<int:req_id>')
 def view_answer(req_id):
     log = ConsultLog.query.filter_by(request_id=req_id).first()
@@ -578,6 +567,7 @@ def view_answer(req_id):
         return "아직 답변이 작성되지 않았습니다."
     return render_template('view_answer.html', log=log)
 
+# 로그아웃
 @app.route('/teacher_logout')
 def teacher_logout():
     session.pop('teacher_id', None)
@@ -586,6 +576,7 @@ def teacher_logout():
     session.pop('class_num', None)
     return redirect('/')
 
+# 교사 승인
 @app.route('/admin/approve_teachers', methods=['GET', 'POST'])
 def approve_teachers():
     if request.method == 'POST':
@@ -597,20 +588,19 @@ def approve_teachers():
     unapproved = Teacher.query.filter_by(is_approved=False).all()
     return render_template('approve_teachers.html', teachers=unapproved)
 
-# 📂 상담자료실 - 외부 사이트로 리다이렉트
+# 상담자료실
 @app.route('/materials')
 def materials():
     if 'teacher_id' not in session:
         return redirect('/teacher_login')
-    target_url = "https://sites.google.com/paju.es.kr/mindtalkhub"
-    return redirect(target_url, code=302)
+    return redirect("https://sites.google.com/paju.es.kr/mindtalkhub", code=302)
 
+# 신청일 수정(서버 DB)
 @app.route('/teacher/update_date', methods=['POST'])
 def update_consult_date():
     if 'teacher_id' not in session:
         return redirect('/teacher_login')
 
-    # id 안전하게 파싱
     try:
         cid = int(request.form.get('id', '').strip())
     except (TypeError, ValueError):
@@ -622,12 +612,16 @@ def update_consult_date():
         flash('기록을 찾을 수 없습니다.')
         return redirect(url_for('consult_list'))
 
+    # 🔒 본인 반만 수정 가능
+    if not (rec.grade == session.get('grade') and rec.class_num == session.get('class_num')):
+        flash('이 반에 대한 권한이 없습니다.')
+        return redirect(url_for('consult_list'))
+
     raw = (request.form.get('date') or '').strip()
     if not raw:
         flash('날짜가 비었습니다.')
         return redirect(url_for('consult_list'))
 
-    # 여러 형식 허용
     candidates = [raw, raw.replace('T', ' '), raw.replace('/', '-')]
     dt = None
     for s in candidates:
@@ -640,7 +634,6 @@ def update_consult_date():
         if dt:
             break
 
-    # 그래도 실패하면 숫자만 뽑아서 조립
     if not dt:
         m = re.search(r'(\d{4})\D?(\d{1,2})\D?(\d{1,2})\D+(\d{1,2})\D?(\d{1,2})', raw)
         if m:
@@ -660,12 +653,11 @@ def update_consult_date():
     flash('상담 신청일을 수정했습니다.')
     return redirect(url_for('consult_list'))
 
-# === 500 에러 핸들러(로그 남김) ===
+# 500 핸들러
 @app.errorhandler(500)
 def handle_500(e):
     app.logger.exception('Server Error')
     return "<h3>서버 오류가 발생했습니다. 로그를 확인해 주세요.</h3>", 500
 
 if __name__ == '__main__':
-    # 로컬 실행용 (Render에서는 gunicorn 사용)
     app.run(host='0.0.0.0', port=5000, debug=True)
