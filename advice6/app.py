@@ -1,9 +1,10 @@
 from flask import Flask, render_template, request, redirect, session, flash, url_for, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-import os, re, logging
+import os, re, logging, shutil, time
 from zoneinfo import ZoneInfo
 from math import ceil
+from werkzeug.utils import secure_filename
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -98,10 +99,59 @@ def healthz():
 @app.get("/dbcheck")
 def dbcheck():
     try:
-        cnt = db.session.execute("SELECT COUNT(*) AS c FROM consult_request").first()[0]
-        return {"ok": True, "db": database_url, "rows": cnt}, 200
+        cnt = db.session.execute(text("SELECT COUNT(*) AS c FROM consult_request")).scalar()
+return {"ok": True, "db": database_url, "rows": cnt}, 200
     except Exception as e:
         return {"ok": False, "db": database_url, "error": str(e)}, 500
+
+@app.get("/admin/storage_status")
+def storage_status():
+    import os
+    seed = os.path.join(basedir, "seed", "consulting-seed.db")
+    live = sqlite_path  # advice6/consulting.db
+    return {
+        "seed_exists": os.path.exists(seed),
+        "live_exists": os.path.exists(live),
+        "seed_path": seed,
+        "live_path": live,
+    }
+
+ADMIN_PW = os.getenv("ADMIN_PW", "PAJU2025")
+
+@app.route("/admin/upload_db", methods=["GET","POST"])
+def admin_upload_db():
+    if request.method == "GET":
+        return """
+        <form method="post" enctype="multipart/form-data">
+          <p>암호: <input name="pw" type="password"></p>
+          <p>.db 파일: <input name="file" type="file" accept=".db"></p>
+          <button>업로드</button>
+        </form>
+        """
+    if request.form.get("pw") != ADMIN_PW:
+        return "Forbidden", 403
+
+    f = request.files.get("file")
+    if not f: return "no file", 400
+
+    tmp = os.path.join(basedir, "tmp-upload-"+secure_filename(f.filename))
+    f.save(tmp)
+
+    # 백업
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    if os.path.exists(sqlite_path):
+        shutil.copyfile(sqlite_path, sqlite_path + f".bak-{ts}")
+
+    # 교체
+    shutil.copyfile(tmp, sqlite_path)
+
+    # 열린 커넥션 정리 후 새 파일 사용
+    try:
+        db.engine.dispose()
+    except Exception:
+        pass
+
+    return "OK - DB replaced"
 
 @app.route('/')
 def index():
