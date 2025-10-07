@@ -82,7 +82,7 @@
           <td>
             <div class="actions">
               <!-- 수정: 편집 페이지로 이동(그 페이지에서 비밀번호 확인) -->
-              <a class="btn btn-sm" href="/student_request_edit/{{ item.id }}">✏️ 수정</a>
+             <a class="btn btn-sm" href="/student_request_edit/{{ item.id }}?next=/my_requests">✏️ 수정</a>
 
               <!-- 삭제: 비밀번호 필요(빈 경우 위의 공통 입력값 자동 사용) -->
               <form class="del-form" action="/student_request_delete/{{ item.id }}" method="post"
@@ -122,3 +122,4 @@
   </script>
 </body>
 </html>
+
