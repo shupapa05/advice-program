@@ -151,7 +151,7 @@ def student_request():
 # === 학생 신청 수정/삭제 ===
 # 학생이 자기 신청내용을 수정 (비밀번호 없이, 기존 작성 폼과 동일 UI)
 @app.route('/student_request_edit/<int:req_id>', methods=['GET', 'POST'])
-def student_request_edit(req_id):
+def student_request_edit(req_id): 
     r = ConsultRequest.query.get_or_404(req_id)
 
     # 돌아갈 위치: 쿼리 ?next=... 또는 폼 hidden next. 없으면 내 상담 내역(/check_request)로.
