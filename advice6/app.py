@@ -576,6 +576,16 @@ def api_stats():
         "avg_response_hours": avg_response_h,
     })
 
+# 통계 페이지/API는 항상 신선하게(브라우저·중간 프록시 캐시 무효화)
+@app.after_request
+def add_no_cache_headers(resp):
+    if request.path in ("/statistics", "/api/stats"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+    
+
 # 질문 템플릿
 @app.route('/question_template', methods=['GET', 'POST'])
 def question_template():
