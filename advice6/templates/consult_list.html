@@ -8,7 +8,7 @@
     h2{text-align:center;margin-bottom:18px}
     .msg{text-align:center;margin:10px 0 22px;color:#0b7285;font-weight:600}
     table{width:100%;border-collapse:collapse;background:#fff}
-    th,td{padding:10px;border:1px solid #ddd;text-align:center}
+    th,td{padding:10px;border:1px solid #ddd;text-align:center;vertical-align:middle}
     th{background:#7ed6df;color:#fff}
     tr:nth-child(even){background:#f2f2f2}
     .btn{padding:6px 14px;background:#22a6b3;color:#fff;border:none;border-radius:6px;text-decoration:none;display:inline-block}
@@ -17,6 +17,10 @@
     .date-input{width:150px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
     .date-submit{padding:6px 10px;border:none;border-radius:6px;background:#6c5ce7;color:#fff;cursor:pointer}
     .date-submit:hover{background:#5a4bd6}
+    /* 상태 점(노랑/초록) */
+    .status-dot{display:inline-block;width:12px;height:12px;border-radius:999px;vertical-align:middle}
+    .status-pending{background:#f5a524} /* 노랑 */
+    .status-done{background:#10b981}    /* 녹색 */
   </style>
 </head>
 <body>
@@ -87,6 +91,7 @@
       const table = document.getElementById('reqTable');
       const tbody = document.getElementById('reqTbody') || table.querySelector('tbody');
 
+      // 문자열 날짜 → ms
       function parseDateToMs(txt){
         if(!txt) return 0;
         const t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ','T') : txt;
@@ -99,9 +104,13 @@
       }
 
       async function loadAndMerge() {
+        // Firestore에 저장된 요청ID 집합(=답변/작성 완료된 건)
+        const answered = new Set();
+
         // 1) 서버 행 수집 (날짜 수정 폼도 지원)
         const rows = [];
         const serverRows = Array.from(tbody.querySelectorAll('tr'));
+        // 서버 테이블의 기존 '작성' 링크 모음(중복 방지용)
         const existingWriteLinks = new Set(
           [...tbody.querySelectorAll('a.btn')].map(a=>a.getAttribute('href')).filter(Boolean)
         );
@@ -120,11 +129,12 @@
             const d = new Date(r.dateISO || r.updatedAt || Date.now());
             const dateStr = isNaN(d) ? (r.dateISO || r.updatedAt || '') : d.toLocaleString('ko-KR');
 
-            // 🔗 /write_log/<신청ID> 만들기 (requestId 우선, 없으면 req_123에서 123 추출)
+            // 🔗 /write_log/<신청ID> (requestId 우선, 없으면 'req_123' → 123)
             const rid = r.requestId || (doc.id && doc.id.startsWith('req_') ? doc.id.slice(4) : null);
+            if (rid) answered.add(String(rid));
             const href = rid ? `/write_log/${rid}` : '#';
 
-            // 서버 쪽에 이미 같은 링크가 있으면 중복 추가 스킵
+            // 서버에 이미 같은 요청행이 있으면 Firestore쪽 중복 추가는 생략
             if (href !== '#' && existingWriteLinks.has(href)) return;
 
             const tr = document.createElement('tr');
@@ -136,23 +146,48 @@
               <td>${r.name ?? ''}</td>
               <td>${r.topic ?? ''}</td>
               <td style="text-align:left">${(r.memo ?? '').replace(/</g,"&lt;")}</td>
-              <td>완료</td>
+              <td><span class="status-dot status-done" title="완료"></span></td>
               <td>${href==='#'
                     ? '<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'
-                    : `<a class="btn" href="${href}">작성</a>`}</td>`;
+                    : `<a class="btn" href="${href}">수정</a>`}</td>`;
             rows.push({ tr, time: d.getTime() || 0 });
           });
         } catch (e) {
           console.warn('Firestore 불러오기 실패(서버 데이터만 사용):', e);
         }
 
-        // 3) 최신순 정렬 및 렌더
+        // 3) 서버 행의 상태/버튼도 Firestore 정보로 통일
+        tbody.querySelectorAll('tr').forEach(tr=>{
+          const tds = tr.querySelectorAll('td');
+          const statusTd = tds[7];
+          const btn = tds[8]?.querySelector('a.btn');
+
+          // 요청ID 찾기: 숨은 input[name=id] → 링크의 /write_log/<id>
+          let rid = tr.querySelector('input[name="id"]')?.value || null;
+          if (!rid && btn) {
+            const m = btn.getAttribute('href')?.match(/\/write_log\/(\d+)/);
+            if (m) rid = m[1];
+          }
+          // 서버가 이미 '완료'라고 쓴 경우까지 포함
+          const serverDone = /완료|true|checked|✅/i.test((statusTd?.innerText||'').trim());
+          const done = serverDone || (rid && answered.has(String(rid)));
+
+          // 상태 칸 통일 (색 점)
+          if (statusTd) statusTd.innerHTML = `<span class="status-dot ${done?'status-done':'status-pending'}" title="${done?'완료':'대기'}"></span>`;
+
+          // 버튼 라벨 통일
+          if (btn) btn.textContent = done ? '수정' : '작성';
+        });
+
+        // 4) 전체 최신순 정렬
         rows.sort((a,b)=>b.time-a.time);
         tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
+
+        // 5) 날짜 수정 → Firestore에도 미러(있을 때만)
+        attachDateMirror(db, COL);
       }
 
-      // 목록에서 날짜 수정 → Firestore에도 미러(있을 때만)
-      function attachDateMirror() {
+      function attachDateMirror(db, COL){
         const forms = document.querySelectorAll('.date-form');
         forms.forEach(form => {
           form.addEventListener('submit', async (e) => {
@@ -180,7 +215,8 @@
         });
       }
 
-      loadAndMerge().then(attachDateMirror);
+      // 실행
+      loadAndMerge();
     })();
   </script>
 </body>
