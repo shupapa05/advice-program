@@ -1,22 +1,22 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>상담 신청 내역</title>
   <style>
-    body { font-family: 'Nanum Gothic', sans-serif; max-width: 1000px; margin: 60px auto; padding: 20px; background-color: #f8f9fa; }
-    h2 { text-align: center; margin-bottom: 18px; }
-    .msg { text-align:center; margin:10px 0 22px; color:#0b7285; font-weight:600; }
-    table { width: 100%; border-collapse: collapse; background-color: white; }
-    th, td { padding: 10px; border: 1px solid #ddd; text-align: center; }
-    th { background-color: #7ed6df; color: white; }
-    tr:nth-child(even) { background-color: #f2f2f2; }
-    .btn { padding: 6px 14px; background-color: #22a6b3; color: white; border: none; border-radius: 6px; text-decoration: none; display:inline-block; }
-    .btn:hover { background-color: #1e90a1; }
-    .date-form { display:flex; gap:6px; align-items:center; justify-content:center; }
-    .date-input { width: 150px; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-family: inherit; font-size: 14px; }
-    .date-submit { padding: 6px 10px; border:none; border-radius:6px; background:#6c5ce7; color:#fff; cursor:pointer; }
-    .date-submit:hover { background:#5a4bd6; }
+    body{font-family:'Nanum Gothic',sans-serif;max-width:1000px;margin:60px auto;padding:20px;background:#f8f9fa}
+    h2{text-align:center;margin-bottom:18px}
+    .msg{text-align:center;margin:10px 0 22px;color:#0b7285;font-weight:600}
+    table{width:100%;border-collapse:collapse;background:#fff}
+    th,td{padding:10px;border:1px solid #ddd;text-align:center}
+    th{background:#7ed6df;color:#fff}
+    tr:nth-child(even){background:#f2f2f2}
+    .btn{padding:6px 14px;background:#22a6b3;color:#fff;border:none;border-radius:6px;text-decoration:none;display:inline-block}
+    .btn:hover{background:#1e90a1}
+    .date-form{display:flex;gap:6px;align-items:center;justify-content:center}
+    .date-input{width:150px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
+    .date-submit{padding:6px 10px;border:none;border-radius:6px;background:#6c5ce7;color:#fff;cursor:pointer}
+    .date-submit:hover{background:#5a4bd6}
   </style>
 </head>
 <body>
@@ -34,14 +34,8 @@
     <thead>
       <tr>
         <th>{{ '신청일(수정)' if edit_date_enabled else '신청일' }}</th>
-        <th>학년</th>
-        <th>반</th>
-        <th>번호</th>
-        <th>이름</th>
-        <th>주제</th>
-        <th>내용</th>
-        <th>상태</th>
-        <th>작성</th>
+        <th>학년</th><th>반</th><th>번호</th><th>이름</th>
+        <th>주제</th><th>내용</th><th>상태</th><th>작성</th>
       </tr>
     </thead>
     <tbody id="reqTbody">
@@ -50,8 +44,8 @@
         <td>
           {% if edit_date_enabled %}
           <form class="date-form" action="/teacher/update_date" method="post">
-            <input type="hidden" name="id" value="{{ r.id }}">
-            <input class="date-input" type="datetime-local" name="date" value="{{ r.date|replace(' ', 'T') }}" step="60" required>
+            <input type="hidden" name="id" value="{{ r.id }}" />
+            <input class="date-input" type="datetime-local" name="date" value="{{ r.date|replace(' ', 'T') }}" step="60" required />
             <button class="date-submit" type="submit">수정</button>
           </form>
           {% else %}
@@ -71,7 +65,7 @@
     </tbody>
   </table>
 
-  <div style="text-align: center; margin-top: 24px;">
+  <div style="text-align:center;margin-top:24px">
     <a href="/teacher_home" class="btn">🏠 교사 홈으로 돌아가기</a>
   </div>
 
@@ -93,38 +87,45 @@
       const table = document.getElementById('reqTable');
       const tbody = document.getElementById('reqTbody') || table.querySelector('tbody');
 
-      function parseDateToMs(txt) {
-        if (!txt) return 0;
-        const t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ', 'T') : txt;
-        const d = new Date(t);
-        if (!isNaN(d)) return d.getTime();
+      function parseDateToMs(txt){
+        if(!txt) return 0;
+        const t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ','T') : txt;
+        const d = new Date(t); if(!isNaN(d)) return d.getTime();
         const m = txt.match(/(\d{4})[^\d]?(\d{1,2})[^\d]?(\d{1,2}).*?(\d{1,2})?:?(\d{1,2})?/);
-        if (m) {
-          const [_, Y, M, D, h='0', n='0'] = m;
+        if(m){ const [_,Y,M,D,h='0',n='0']=m;
           return new Date(`${Y.padStart(4,'0')}-${String(M).padStart(2,'0')}-${String(D).padStart(2,'0')}T${String(h).padStart(2,'0')}:${String(n).padStart(2,'0')}:00`).getTime();
         }
         return 0;
       }
 
       async function loadAndMerge() {
-        // 1) 서버 행 수집
+        // 1) 서버 행 수집 (날짜 수정 폼도 지원)
         const rows = [];
         const serverRows = Array.from(tbody.querySelectorAll('tr'));
+        const existingWriteLinks = new Set(
+          [...tbody.querySelectorAll('a.btn')].map(a=>a.getAttribute('href')).filter(Boolean)
+        );
         for (const tr of serverRows) {
           const firstTd = tr.querySelector('td');
-          const time = parseDateToMs(firstTd?.innerText?.trim() || '');
-          rows.push({ tr, time });
+          const input = firstTd?.querySelector('input[type="datetime-local"]');
+          const txt = input?.value || firstTd?.innerText.trim() || '';
+          rows.push({ tr, time: parseDateToMs(txt) });
         }
 
-        // 2) Firestore 데이터 수집
+        // 2) Firestore 데이터
         try {
-          const snap = await db.collection(COL).orderBy("dateISO", "desc").get();
-          for (const doc of snap.docs) {
+          const snap = await db.collection(COL).orderBy("dateISO","desc").get();
+          snap.forEach(doc=>{
             const r = doc.data();
             const d = new Date(r.dateISO || r.updatedAt || Date.now());
             const dateStr = isNaN(d) ? (r.dateISO || r.updatedAt || '') : d.toLocaleString('ko-KR');
-            const who = [r.grade && `${r.grade}학년`, r.class_num && `${r.class_num}반`, r.number && `${r.number}번`, r.name].filter(Boolean).join(' ');
-            const writeHref = r.requestId ? `/write_log/${r.requestId}` : '#';
+
+            // 🔗 /write_log/<신청ID> 만들기 (requestId 우선, 없으면 req_123에서 123 추출)
+            const rid = r.requestId || (doc.id && doc.id.startsWith('req_') ? doc.id.slice(4) : null);
+            const href = rid ? `/write_log/${rid}` : '#';
+
+            // 서버 쪽에 이미 같은 링크가 있으면 중복 추가 스킵
+            if (href !== '#' && existingWriteLinks.has(href)) return;
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -136,26 +137,26 @@
               <td>${r.topic ?? ''}</td>
               <td style="text-align:left">${(r.memo ?? '').replace(/</g,"&lt;")}</td>
               <td>완료</td>
-              <td><a class="btn" href="${writeHref}">작성</a></td>
-            `;
+              <td>${href==='#'
+                    ? '<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'
+                    : `<a class="btn" href="${href}">작성</a>`}</td>`;
             rows.push({ tr, time: d.getTime() || 0 });
-          }
+          });
         } catch (e) {
           console.warn('Firestore 불러오기 실패(서버 데이터만 사용):', e);
         }
 
-        // 3) 최신순 정렬 후 재조립
-        rows.sort((a,b) => b.time - a.time);
-        tbody.innerHTML = '';
-        for (const { tr } of rows) tbody.appendChild(tr);
+        // 3) 최신순 정렬 및 렌더
+        rows.sort((a,b)=>b.time-a.time);
+        tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
       }
 
-      // 날짜 수정 시 Firestore에도 미러(있을 때만)
+      // 목록에서 날짜 수정 → Firestore에도 미러(있을 때만)
       function attachDateMirror() {
         const forms = document.querySelectorAll('.date-form');
         forms.forEach(form => {
           form.addEventListener('submit', async (e) => {
-            if (form.dataset.fsdone === '1') return; // 재진입 방지
+            if (form.dataset.fsdone === '1') return;
             e.preventDefault();
             try {
               const id = form.querySelector('input[name="id"]')?.value;
@@ -179,7 +180,6 @@
         });
       }
 
-      // 실행
       loadAndMerge().then(attachDateMirror);
     })();
   </script>
