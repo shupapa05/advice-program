@@ -100,7 +100,7 @@ def healthz():
 @app.get("/dbcheck")
 def dbcheck():
     try:
-        cnt = db.session.execute(text("SELECT COUNT(*) FROM consult_request")).scalar() or 0
+        cnt = db.session.execute(text("SELECT COUNT(*) AS c FROM consult_request")).scalar()
         return {"ok": True, "db": database_url, "rows": int(cnt)}, 200
     except Exception as e:
         return {"ok": False, "db": database_url, "error": str(e)}, 500
@@ -497,7 +497,7 @@ def write_log(req_id):
         db.session.commit()
         return redirect(url_for('consult_list', page=back_page))
 
-    show_dt_edit = EDIT_LOG_DATE_EDIT or (request.args.get('edit_dt') == '1')
+    show_dt_edit = EDIT_LOG_DATE_ENABLED or (request.args.get('edit_dt') == '1')
     default_dt_input = _to_input_value(log.date if log else None)
 
     return render_template(
