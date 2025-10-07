@@ -24,6 +24,8 @@
     .mini-input{width:160px;padding:4px 6px;border:1px solid #ccc;border-radius:6px;font:inherit}
     .mini-btn{padding:4px 8px;border:none;border-radius:6px;background:#0ea5e9;color:#fff;cursor:pointer;font-size:12px}
     .mini-btn:hover{background:#0284c7}
+    .content-cell{ text-align:left }
+    .student-edit{ font-size:12px; margin-left:6px; }
   </style>
 </head>
 <body>
@@ -37,14 +39,21 @@
     {% endif %}
   {% endwith %}
 
+  <!-- 표시/수정 토글 (없으면 기본 1) -->
+  <div id="flags"
+       data-fs-edit="{{ 1 if fs_date_edit_enabled|default(1) else 0 }}"
+       data-student-edit="{{ 1 if student_edit_enabled|default(0) else 0 }}">
+  </div>
+
   <table id="reqTable">
     <thead>
       <tr>
-        <!-- 이 첫 번째 칼럼은 '신청일' (서버 DB) 전용입니다 -->
+        <!-- ① 신청일(서버 DB) -->
         <th>{{ '신청일(수정)' if edit_date_enabled else '신청일' }}</th>
         <th>학년</th><th>반</th><th>번호</th><th>이름</th>
-        <th>주제</th><th>내용</th>
-        <!-- 상태 칸에 Firestore '작성일'을 표기하고, 그 자리에서 수정합니다 -->
+        <th>주제</th>
+        <th>내용</th>
+        <!-- ② 상태/작성일(교사, Firestore) -->
         <th>상태 / 작성일(교사)</th>
         <th>작성</th>
       </tr>
@@ -54,7 +63,7 @@
       <tr>
         <td>
           {% if edit_date_enabled %}
-          <!-- ⚠️ 이 폼은 '신청일(서버)'만 바꿉니다. Firestore 작성일에는 영향 없음 -->
+          <!-- 신청일 수정: 서버만 업데이트 -->
           <form class="date-form" action="/teacher/update_date" method="post">
             <input type="hidden" name="id" value="{{ r.id }}" />
             <input class="date-input" type="datetime-local" name="date" value="{{ r.date|replace(' ', 'T') }}" step="60" required />
@@ -69,8 +78,14 @@
         <td>{{ r.number }}</td>
         <td>{{ r.name }}</td>
         <td>{{ r.topic }}</td>
-        <td style="text-align:left">{{ r.content }}</td>
-        <td><!-- 상태/작성일(교사) 셀: JS가 채웁니다 --></td>
+        <td class="content-cell">
+          {{ r.content }}
+          {% if student_edit_enabled|default(0) %}
+            <a class="student-edit" href="/student_request_edit/{{ r.id }}">(신청내용 수정)</a>
+          {% endif %}
+        </td>
+        <!-- 상태/작성일은 JS가 채웁니다 -->
+        <td></td>
         <td><a class="btn" href="/write_log/{{ r.id }}">작성</a></td>
       </tr>
       {% endfor %}
@@ -98,6 +113,9 @@
 
       const table = document.getElementById('reqTable');
       const tbody = document.getElementById('reqTbody') || table.querySelector('tbody');
+
+      const FLAGS = document.getElementById('flags');
+      const ALLOW_FS_EDIT = (FLAGS?.dataset.fsEdit ?? '1') === '1';
 
       // 유틸
       function parseDateToMs(txt){
@@ -137,7 +155,7 @@
             if (rid) rowByRid.set(String(rid), tr);
           });
 
-          // 정렬용 배열(초기엔 서버행 넣어둠); 기본 정렬 키는 '신청일'
+          // 정렬용 배열(초기엔 서버행/신청일로)
           const rows = [];
           serverRows.forEach(tr=>{
             const td=tr.querySelector('td'); const inp=td?.querySelector('input[type=datetime-local]');
@@ -146,7 +164,7 @@
             rows.push({tr, time:+tr.dataset.time});
           });
 
-          // Firestore에서 문서 불러오기
+          // 2) Firestore 문서 로드 → 서버행을 덮어써 상태/버튼/작성일을 확정
           const answered = new Set();
           const snap = await db.collection(COL).orderBy("dateISO","desc").get();
           snap.forEach(doc=>{
@@ -157,10 +175,9 @@
             const localInput = isNaN(d) ? '' : toLocalInputValue(d);
             if (rid) answered.add(String(rid));
 
-            // 🔁 서버행 '신청일'은 그대로 두고, 상태 칸에 '작성일(교사)'를 표기 + 수정 폼 제공
             let tr = rid ? rowByRid.get(String(rid)) : null;
             if (!tr) {
-              // 서버에 없는 건은 새 행 추가 (신청일은 Firestore 날짜를 보여주지 않음)
+              // 서버에 없는 건은 새 행 추가 (신청일 공란)
               tr = document.createElement('tr');
               tr.innerHTML = `
                 <td></td>
@@ -169,34 +186,34 @@
                 <td>${r.number??''}</td>
                 <td>${r.name??''}</td>
                 <td>${r.topic??''}</td>
-                <td style="text-align:left">${(r.memo??'').replace(/</g,"&lt;")}</td>
+                <td class="content-cell">${(r.memo??'').replace(/</g,"&lt;")}</td>
                 <td></td>
                 <td>${rid?`<a class="btn" href="/write_log/${rid}">수정</a>`:'<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'}</td>`;
               tbody.appendChild(tr);
               rows.push({tr, time: d.getTime()||0});
             }
 
-            // 상태/작성일(교사) 셀 구성
+            // 상태/작성일(교사) 셀 구성 + 버튼 '수정' 확정
             const tds = tr.querySelectorAll('td');
             const statusCell = tds[7];
             statusCell.innerHTML = `
-              <div><span class="status-dot status-done" title="완료"></span></div>
+              <div><span class="status-dot status-done" title="작성됨"></span></div>
               <div class="fs-meta">
-                작성일:
-                <span class="fs-date">${localLabel}</span>
-                ${rid ? `
+                작성일: <span class="fs-date">${localLabel}</span>
+                ${ALLOW_FS_EDIT && rid ? `
                   <form class="fs-date-form" data-rid="${rid}" style="display:inline-block;margin-left:6px">
                     <input class="mini-input" type="datetime-local" name="fs_date" value="${localInput}" step="60" required>
                     <button class="mini-btn" type="submit">저장</button>
                   </form>` : ''}
               </div>
             `;
+            tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">수정</a>`;
 
-            // 이 행의 정렬 기준은 '작성일(교사)'로 갱신
+            // 정렬 기준을 작성일(교사)로 갱신
             tr.dataset.time = String(d.getTime()||0);
           });
 
-          // Firestore에 없는 서버행은 '대기' + 작성일 없음
+          // 3) Firestore에 없는 서버행은 '미작성(노랑) + [작성]'으로 확정
           serverRows.forEach(tr=>{
             let rid = tr.querySelector('input[name="id"]')?.value || null;
             if (!rid) {
@@ -206,32 +223,31 @@
             if (!rid || answered.has(String(rid))) return;
             const tds = tr.querySelectorAll('td');
             tds[7].innerHTML = `
-              <div><span class="status-dot status-pending" title="대기"></span></div>
+              <div><span class="status-dot status-pending" title="미작성"></span></div>
               <div class="fs-meta">작성일: -</div>
             `;
-            const btn = tds[8]?.querySelector('a.btn'); if (btn) btn.textContent = '작성';
+            tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">작성</a>`;
           });
 
-          // 최신순 정렬(작성일 있으면 그걸로, 없으면 신청일)
+          // 4) 최신순 정렬(작성일 있으면 그것, 없으면 신청일)
           rows.forEach(r=>{ if(!r.time && r.tr?.dataset?.time) r.time = +r.tr.dataset.time; });
           rows.sort((a,b)=>b.time-a.time);
           tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
 
-          // 폼 이벤트 연결
-          attachServerDateMirror();      // 신청일(서버) 폼
-          attachFirestoreDateEditor(db); // 작성일(교사) 인라인 폼
+          // 5) 폼 이벤트 연결
+          attachServerDateSubmitFix();     // 신청일(서버) 폼 포맷 보정
+          if (ALLOW_FS_EDIT) attachFirestoreDateEditor(db); // 작성일(교사) 저장
         } catch (e) {
           console.warn('Firestore 통합 실패 → 서버 데이터만 정렬:', e);
           sortOnlyServer();
         }
       }
 
-      // 신청일(서버) 폼: Firestore는 건드리지 않고, 서버만 업데이트(포맷 보정)
-      function attachServerDateMirror(){
+      // 신청일(서버) 폼: 서버가 "YYYY-MM-DD HH:MM"을 기대하면 T→공백으로 보정
+      function attachServerDateSubmitFix(){
         const forms = document.querySelectorAll('.date-form');
         forms.forEach(form=>{
           form.addEventListener('submit', (e)=>{
-            // 서버가 "YYYY-MM-DD HH:MM"를 선호하면 여기서 보정
             const inp = form.querySelector('input[name="date"]');
             if (inp && inp.value.includes('T')) {
               inp.value = inp.value.replace('T',' ');
@@ -240,7 +256,7 @@
         });
       }
 
-      // 작성일(교사) 인라인 편집 → Firestore만 업데이트 (신청일/서버에는 영향 X)
+      // 작성일(교사) 저장 → Firestore만 업데이트(서버 신청일엔 영향 없음)
       function attachFirestoreDateEditor(db){
         document.querySelectorAll('.fs-date-form').forEach(f=>{
           f.addEventListener('submit', async (e)=>{
@@ -253,7 +269,7 @@
                 dateISO: new Date(val).toISOString(),
                 updatedAt: new Date().toISOString()
               }, { merge:true });
-              // 화면 라벨 갱신
+              // 라벨 갱신
               const label = f.closest('.fs-meta').querySelector('.fs-date');
               const d = new Date(val);
               label.textContent = isNaN(d) ? val : d.toLocaleString('ko-KR');
