@@ -149,29 +149,41 @@ def student_request():
     return render_template('student_request.html')
 
 # === 학생 신청 수정/삭제 ===
+# 학생이 자기 신청내용을 수정 (비밀번호 없이, 기존 작성 폼과 동일 UI)
 @app.route('/student_request_edit/<int:req_id>', methods=['GET', 'POST'])
 def student_request_edit(req_id):
     r = ConsultRequest.query.get_or_404(req_id)
+
+    # 돌아갈 위치: 쿼리 ?next=... 또는 폼 hidden next. 없으면 내 상담 내역(/check_request)로.
+    next_url = request.args.get('next') or request.form.get('next') or url_for('check_request')
+
     if request.method == 'POST':
-        pw = request.form.get('password', '')
-        if r.password != pw:
-            flash('비밀번호가 올바르지 않습니다.')
-            return redirect(url_for('check_request'))
-        r.topic = (request.form.get('topic') or r.topic).strip()
-        r.content = (request.form.get('content') or r.content).strip()
+        # 주제: '기타' 선택 시 custom_topic 사용
+        topic = (request.form.get('topic') or r.topic).strip()
+        if topic == '기타':
+            topic = (request.form.get('custom_topic') or '').strip() or '기타'
+
+        # 내용
+        content = (request.form.get('content') or r.content).strip()
+
+        # 수정 반영
+        r.topic = topic
+        r.content = content
         db.session.commit()
-        flash('수정되었습니다.')
-        return redirect(url_for('check_request'))
-    # 간단 폼
-    return (f"""
-      <form method="post">
-        <p>비밀번호 확인: <input name="password" type="password" required></p>
-        <p>주제: <input name="topic" value="{r.topic}" style="width:400px"></p>
-        <p>내용:<br><textarea name="content" rows="8" cols="60">{r.content}</textarea></p>
-        <button type="submit">저장</button>
-        <a href="/check_request">취소</a>
-      </form>
-    """)
+
+        # 저장 후 원하는 페이지로
+        return redirect(next_url)
+
+    # GET: 편집 페이지 렌더링(기존 작성 폼과 유사 UI)
+    # topic 목록은 기존 student_request.html 과 동일하게 맞춰 주세요.
+    topics = ['친구관계', '학교생활', '정서·행동', '진로', '가족', '학업', '기타']
+    return render_template(
+        'student_request_edit.html',
+        req=r,
+        topics=topics,
+        next_url=next_url
+    )
+
 
 @app.route('/student_request_delete/<int:req_id>', methods=['POST'])
 def student_request_delete(req_id):
