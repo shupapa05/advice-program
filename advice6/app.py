@@ -151,38 +151,24 @@ def student_request():
 # === 학생 신청 수정/삭제 ===
 # 학생이 자기 신청내용을 수정 (비밀번호 없이, 기존 작성 폼과 동일 UI)
 @app.route('/student_request_edit/<int:req_id>', methods=['GET', 'POST'])
-def student_request_edit(req_id): 
+def student_request_edit(req_id):
     r = ConsultRequest.query.get_or_404(req_id)
 
-    # 돌아갈 위치: 쿼리 ?next=... 또는 폼 hidden next. 없으면 내 상담 내역(/check_request)로.
-    next_url = request.args.get('next') or request.form.get('next') or url_for('check_request')
+    # 🔸 next 파라미터 없으면 /my_requests 로
+    next_url = request.args.get('next') or request.form.get('next') or url_for('my_requests')
 
     if request.method == 'POST':
-        # 주제: '기타' 선택 시 custom_topic 사용
         topic = (request.form.get('topic') or r.topic).strip()
         if topic == '기타':
             topic = (request.form.get('custom_topic') or '').strip() or '기타'
-
-        # 내용
-        content = (request.form.get('content') or r.content).strip()
-
-        # 수정 반영
         r.topic = topic
-        r.content = content
+        r.content = (request.form.get('content') or r.content).strip()
         db.session.commit()
-
-        # 저장 후 원하는 페이지로
         return redirect(next_url)
 
-    # GET: 편집 페이지 렌더링(기존 작성 폼과 유사 UI)
-    # topic 목록은 기존 student_request.html 과 동일하게 맞춰 주세요.
-    topics = ['친구관계', '학교생활', '정서·행동', '진로', '가족', '학업', '기타']
-    return render_template(
-        'student_request_edit.html',
-        req=r,
-        topics=topics,
-        next_url=next_url
-    )
+    topics = ['친구관계','학교생활','정서·행동','진로','가족','학업','기타']
+    return render_template('student_request_edit.html', req=r, topics=topics, next_url=next_url)
+
 
 
 @app.route('/student_request_delete/<int:req_id>', methods=['POST'])
@@ -208,8 +194,15 @@ def check_request():
         name = request.form['name']
         pw = request.form['password']
 
+        # 🔸 다음에 바로 리스트로 돌아올 수 있게 조회 조건 저장
+        session['myreq_ctx'] = {
+            'grade': grade, 'class_num': class_num, 'number': number,
+            'name': name, 'password': pw
+        }
+
         matched = ConsultRequest.query.filter_by(
-            grade=grade, class_num=class_num, number=number, name=name, password=pw
+            grade=grade, class_num=class_num, number=number,
+            name=name, password=pw
         ).all()
 
         data = []
@@ -218,17 +211,35 @@ def check_request():
             status = '✅ 확인됨' if log else '🟡 대기 중'
             answer = log.memo if log else ''
             data.append({
-                'id': r.id,
-                'date': r.date,
-                'topic': r.topic,
-                'content': r.content,
-                'status': status,
-                'answer': answer
+                'id': r.id, 'date': r.date, 'topic': r.topic,
+                'content': r.content, 'status': status, 'answer': answer
             })
-
         return render_template('my_requests.html', data=data, name=name)
 
     return render_template('check_request.html')
+    @app.get('/my_requests')
+def my_requests():
+    ctx = session.get('myreq_ctx')
+    if not ctx:
+        # 세션 없으면 조회 폼으로
+        return redirect(url_for('check_request'))
+
+    matched = ConsultRequest.query.filter_by(
+        grade=ctx['grade'], class_num=ctx['class_num'], number=ctx['number'],
+        name=ctx['name'], password=ctx['password']
+    ).all()
+
+    data = []
+    for r in matched:
+        log = ConsultLog.query.filter_by(request_id=r.id).first()
+        status = '✅ 확인됨' if log else '🟡 대기 중'
+        answer = log.memo if log else ''
+        data.append({
+            'id': r.id, 'date': r.date, 'topic': r.topic,
+            'content': r.content, 'status': status, 'answer': answer
+        })
+    return render_template('my_requests.html', data=data, name=ctx['name'])
+
 
 # === 교사 인증/홈 ===
 @app.route('/teacher_signup', methods=['GET', 'POST'])
