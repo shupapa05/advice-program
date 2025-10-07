@@ -17,10 +17,9 @@
     .date-input{width:150px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
     .date-submit{padding:6px 10px;border:none;border-radius:6px;background:#6c5ce7;color:#fff;cursor:pointer}
     .date-submit:hover{background:#5a4bd6}
-    /* 상태 점(노랑/초록) */
     .status-dot{display:inline-block;width:12px;height:12px;border-radius:999px;vertical-align:middle}
     .status-pending{background:#f5a524} /* 노랑 */
-    .status-done{background:#10b981}    /* 녹색 */
+    .status-done{background:#10b981}    /* 초록 */
   </style>
 </head>
 <body>
@@ -73,7 +72,7 @@
     <a href="/teacher_home" class="btn">🏠 교사 홈으로 돌아가기</a>
   </div>
 
-  <!-- Firebase SDK -->
+  <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
 
@@ -91,7 +90,6 @@
       const table = document.getElementById('reqTable');
       const tbody = document.getElementById('reqTbody') || table.querySelector('tbody');
 
-      // 문자열 날짜 → ms
       function parseDateToMs(txt){
         if(!txt) return 0;
         const t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ','T') : txt;
@@ -102,120 +100,140 @@
         }
         return 0;
       }
+      const pad = n => String(n).padStart(2,'0');
+      const toLocalInputValue = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+      function sortOnlyServer(){
+        const rows=[...tbody.querySelectorAll('tr')].map(tr=>{
+          const td=tr.querySelector('td'); const inp=td?.querySelector('input[type=datetime-local]');
+          const txt=inp?.value || td?.innerText.trim() || '';
+          return {tr,time:parseDateToMs(txt)};
+        });
+        rows.sort((a,b)=>b.time-a.time); tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
+      }
 
       async function loadAndMerge() {
-        // Firestore에 저장된 요청ID 집합(=답변/작성 완료된 건)
-        const answered = new Set();
-
-        // 1) 서버 행 수집 (날짜 수정 폼도 지원)
-        const rows = [];
-        const serverRows = Array.from(tbody.querySelectorAll('tr'));
-        // 서버 테이블의 기존 '작성' 링크 모음(중복 방지용)
-        const existingWriteLinks = new Set(
-          [...tbody.querySelectorAll('a.btn')].map(a=>a.getAttribute('href')).filter(Boolean)
-        );
-        for (const tr of serverRows) {
-          const firstTd = tr.querySelector('td');
-          const input = firstTd?.querySelector('input[type="datetime-local"]');
-          const txt = input?.value || firstTd?.innerText.trim() || '';
-          rows.push({ tr, time: parseDateToMs(txt) });
-        }
-
-        // 2) Firestore 데이터
         try {
+          // 1) 서버행 인덱스(신청ID → tr)
+          const rowByRid = new Map();
+          const serverRows = Array.from(tbody.querySelectorAll('tr'));
+          serverRows.forEach(tr=>{
+            let rid = tr.querySelector('input[name="id"]')?.value || null;
+            if (!rid) {
+              const href = tr.querySelector('a.btn')?.getAttribute('href');
+              const m = href?.match(/\/write_log\/(\d+)/);
+              if (m) rid = m[1];
+            }
+            if (rid) rowByRid.set(String(rid), tr);
+          });
+
+          // 정렬용 배열(초기엔 서버행 넣어둠)
+          const rows = [];
+          serverRows.forEach(tr=>{
+            const td=tr.querySelector('td'); const inp=td?.querySelector('input[type=datetime-local]');
+            const txt=inp?.value || td?.innerText.trim() || '';
+            tr.dataset.time = String(parseDateToMs(txt));
+            rows.push({tr, time:+tr.dataset.time});
+          });
+
+          // 2) Firestore 데이터: 있으면 서버행 덮어쓰기, 없으면 새 행 추가
+          const answered = new Set();
           const snap = await db.collection(COL).orderBy("dateISO","desc").get();
           snap.forEach(doc=>{
             const r = doc.data();
+            const rid = r.requestId || (doc.id?.startsWith('req_') ? doc.id.slice(4) : null);
             const d = new Date(r.dateISO || r.updatedAt || Date.now());
-            const dateStr = isNaN(d) ? (r.dateISO || r.updatedAt || '') : d.toLocaleString('ko-KR');
-
-            // 🔗 /write_log/<신청ID> (requestId 우선, 없으면 'req_123' → 123)
-            const rid = r.requestId || (doc.id && doc.id.startsWith('req_') ? doc.id.slice(4) : null);
+            const localStr = isNaN(d) ? (r.dateISO || r.updatedAt || '') : d.toLocaleString('ko-KR');
+            const localInput = isNaN(d) ? '' : toLocalInputValue(d);
             if (rid) answered.add(String(rid));
-            const href = rid ? `/write_log/${rid}` : '#';
 
-            // 서버에 이미 같은 요청행이 있으면 Firestore쪽 중복 추가는 생략
-            if (href !== '#' && existingWriteLinks.has(href)) return;
-
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-              <td>${dateStr}</td>
-              <td>${r.grade ?? ''}</td>
-              <td>${r.class_num ?? ''}</td>
-              <td>${r.number ?? ''}</td>
-              <td>${r.name ?? ''}</td>
-              <td>${r.topic ?? ''}</td>
-              <td style="text-align:left">${(r.memo ?? '').replace(/</g,"&lt;")}</td>
-              <td><span class="status-dot status-done" title="완료"></span></td>
-              <td>${href==='#'
-                    ? '<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'
-                    : `<a class="btn" href="${href}">수정</a>`}</td>`;
-            rows.push({ tr, time: d.getTime() || 0 });
+            if (rid && rowByRid.has(String(rid))) {
+              // 🔁 서버행 덮어쓰기(수정본 우선 표시)
+              const tr = rowByRid.get(String(rid));
+              const tds = tr.querySelectorAll('td');
+              const dateInput = tr.querySelector('input[type=datetime-local]');
+              if (dateInput) dateInput.value = localInput; else tds[0].textContent = localStr;
+              tds[6].innerHTML = (r.memo ?? '').replace(/</g,"&lt;");
+              tds[7].innerHTML = '<span class="status-dot status-done" title="완료"></span>';
+              const btn = tds[8]?.querySelector('a.btn'); if (btn) btn.textContent = '수정';
+              tr.dataset.time = String(d.getTime()||0);
+            } else {
+              // 서버에 없는 건은 새 행
+              const href = rid ? `/write_log/${rid}` : '#';
+              const tr = document.createElement('tr');
+              tr.innerHTML = `
+                <td>${localStr}</td>
+                <td>${r.grade??''}</td>
+                <td>${r.class_num??''}</td>
+                <td>${r.number??''}</td>
+                <td>${r.name??''}</td>
+                <td>${r.topic??''}</td>
+                <td style="text-align:left">${(r.memo??'').replace(/</g,"&lt;")}</td>
+                <td><span class="status-dot status-done" title="완료"></span></td>
+                <td>${href==='#'
+                      ? '<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'
+                      : `<a class="btn" href="${href}">수정</a>`}</td>`;
+              tr.dataset.time = String(d.getTime()||0);
+              rows.push({tr, time:+tr.dataset.time});
+            }
           });
+
+          // 3) Firestore에 없는 서버행은 대기(노랑) + 버튼 '작성'
+          serverRows.forEach(tr=>{
+            let rid = tr.querySelector('input[name="id"]')?.value || null;
+            if (!rid) {
+              const href = tr.querySelector('a.btn')?.getAttribute('href');
+              const m = href?.match(/\/write_log\/(\d+)/); if (m) rid = m[1];
+            }
+            if (rid && !answered.has(String(rid))) {
+              const tds = tr.querySelectorAll('td');
+              tds[7].innerHTML = '<span class="status-dot status-pending" title="대기"></span>';
+              const btn = tds[8]?.querySelector('a.btn'); if (btn) btn.textContent = '작성';
+            }
+          });
+
+          // 4) 최신순 정렬
+          rows.sort((a,b)=>b.time-a.time);
+          tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
+
+          // 5) 날짜 수정 → Firestore/서버 동기화
+          attachDateMirror(db, COL);
         } catch (e) {
-          console.warn('Firestore 불러오기 실패(서버 데이터만 사용):', e);
+          console.warn('Firestore 통합 실패 → 서버 데이터만 정렬:', e);
+          sortOnlyServer();
         }
-
-        // 3) 서버 행의 상태/버튼도 Firestore 정보로 통일
-        tbody.querySelectorAll('tr').forEach(tr=>{
-          const tds = tr.querySelectorAll('td');
-          const statusTd = tds[7];
-          const btn = tds[8]?.querySelector('a.btn');
-
-          // 요청ID 찾기: 숨은 input[name=id] → 링크의 /write_log/<id>
-          let rid = tr.querySelector('input[name="id"]')?.value || null;
-          if (!rid && btn) {
-            const m = btn.getAttribute('href')?.match(/\/write_log\/(\d+)/);
-            if (m) rid = m[1];
-          }
-          // 서버가 이미 '완료'라고 쓴 경우까지 포함
-          const serverDone = /완료|true|checked|✅/i.test((statusTd?.innerText||'').trim());
-          const done = serverDone || (rid && answered.has(String(rid)));
-
-          // 상태 칸 통일 (색 점)
-          if (statusTd) statusTd.innerHTML = `<span class="status-dot ${done?'status-done':'status-pending'}" title="${done?'완료':'대기'}"></span>`;
-
-          // 버튼 라벨 통일
-          if (btn) btn.textContent = done ? '수정' : '작성';
-        });
-
-        // 4) 전체 최신순 정렬
-        rows.sort((a,b)=>b.time-a.time);
-        tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
-
-        // 5) 날짜 수정 → Firestore에도 미러(있을 때만)
-        attachDateMirror(db, COL);
       }
 
+      // 날짜 수정: Firestore 먼저 ISO로, 서버엔 "YYYY-MM-DD HH:MM"로 보정해서 제출
       function attachDateMirror(db, COL){
         const forms = document.querySelectorAll('.date-form');
-        forms.forEach(form => {
-          form.addEventListener('submit', async (e) => {
+        forms.forEach(form=>{
+          form.addEventListener('submit', async (e)=>{
             if (form.dataset.fsdone === '1') return;
             e.preventDefault();
-            try {
-              const id = form.querySelector('input[name="id"]')?.value;
-              const dt = form.querySelector('input[name="date"]')?.value;
-              if (!id || !dt) { form.dataset.fsdone='1'; form.submit(); return; }
-              const ref = db.collection(COL).doc('req_' + id);
-              const snap = await ref.get();
-              if (snap.exists) {
-                await ref.set({
-                  dateISO: new Date(dt).toISOString(),
-                  updatedAt: new Date().toISOString()
-                }, { merge: true });
+            const id = form.querySelector('input[name="id"]')?.value;
+            const raw = form.querySelector('input[name="date"]')?.value; // "YYYY-MM-DDTHH:MM"
+            try{
+              if (id && raw){
+                const ref = db.collection(COL).doc('req_'+id);
+                const snap = await ref.get();
+                if (snap.exists){
+                  await ref.set({
+                    dateISO: new Date(raw).toISOString(),
+                    updatedAt: new Date().toISOString()
+                  }, { merge:true });
+                }
               }
-            } catch (err) {
-              console.warn('Firestore date mirror 실패(서버는 계속 진행):', err);
-            } finally {
+            }catch(err){ console.warn('FS date mirror skipped:', err); }
+            finally{
+              if (raw) form.querySelector('input[name="date"]').value = raw.replace('T',' ');
               form.dataset.fsdone = '1';
               form.submit();
             }
-          }, { capture: true });
+          }, { capture:true });
         });
       }
 
-      // 실행
       loadAndMerge();
     })();
   </script>
