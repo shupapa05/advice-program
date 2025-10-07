@@ -2,228 +2,198 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>통계 대시보드</title>
+  <title>상담 통계</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
-      --bg:#f7fafc; --card:#ffffff; --ink:#1f2937; --sub:#475569;
-      --blue:#7ed6df; --blue-dark:#22a6b3; --violet:#6c5ce7;
-      --green:#10b981; --yellow:#f59e0b; --border:#e5e7eb;
-      --shadow:0 8px 20px rgba(0,0,0,.06); --radius:16px;
+      --bg:#f6f7fb;
+      --card:#ffffff;
+      --text:#222;
+      --muted:#667085;
+      --brand:#22a6b3;
+      --line:#e7e9ef;
     }
     *{box-sizing:border-box}
-    body{font-family:'Nanum Gothic',sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:40px 20px 60px;line-height:1.6;font-size:17px}
-    .wrap{max-width:1100px;margin:0 auto}
-    .hero{background:linear-gradient(135deg, var(--blue) 0%, var(--violet) 100%);color:#fff;padding:28px 26px;border-radius:20px;box-shadow:var(--shadow);margin-bottom:26px}
-    .hero h1{margin:0 0 10px;font-size:32px}
-    .hero p{margin:0;opacity:.95;font-size:18px}
-
-    .grid{display:grid;gap:16px}
-    .grid.metrics{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
-    .metric .label{color:var(--sub);font-size:14px;margin-bottom:6px}
-    .metric .value{font-size:28px;font-weight:800}
-    .muted{color:var(--sub);font-size:14px}
-
-    .bar{width:100%;height:10px;background:#edf2f7;border-radius:999px;overflow:hidden;margin-top:10px}
-    .bar>span{display:block;height:100%;background:var(--green)}
-
-    .section{margin-top:26px}
-    .section h2{font-size:22px;margin:0 0 12px 2px}
-
-    .list{display:grid;gap:10px}
-    .row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:#fff}
-    .row .tag{font-size:13px;padding:4px 10px;border-radius:999px;background:#eef2ff;color:#4f46e5;border:1px solid #e5e7eb}
-    .row strong{font-size:18px}
-    .pill{padding:4px 10px;border-radius:999px;background:#ecfeff;color:#0e7490;font-size:13px;border:1px solid #a5f3fc}
-
-    table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:16px;overflow:hidden}
-    th,td{padding:12px 10px;border-bottom:1px solid var(--border);text-align:center}
-    th{background:#f1f5f9;font-weight:700}
-    tr:last-child td{border-bottom:none}
-    .left{text-align:left}
-
-    .two-col{display:grid;gap:16px;grid-template-columns:1fr 1fr}
-    @media (max-width:960px){.two-col{grid-template-columns:1fr}}
-
-    .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
-    .btn{display:inline-block;padding:10px 16px;border-radius:10px;text-decoration:none;background:var(--blue);color:#fff;border:1px solid var(--blue-dark)}
-    .btn:hover{background:var(--blue-dark)}
-
-    /* 차트 캔버스 키우기 */
-    .chart-box{padding:14px}
-    .chart-box canvas{width:100%;max-height:320px}
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    }
+    .topbar{
+      position:sticky; top:0; z-index:10;
+      background:#fff; border-bottom:1px solid var(--line);
+      padding:10px 16px; display:flex; gap:8px; align-items:center;
+    }
+    .topbar .title{font-weight:700; font-size:20px; margin-right:auto}
+    .btn{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:8px 12px; border-radius:10px; text-decoration:none;
+      background:var(--brand); color:#fff; font-weight:600;
+      box-shadow:0 1px 2px rgba(0,0,0,.04);
+    }
+    .btn.secondary{background:#eef6f8; color:#0d5675}
+    .container{max-width:1100px; margin:24px auto; padding:0 16px}
+    .grid{display:grid; gap:16px}
+    .g-4{grid-template-columns:repeat(4,1fr)}
+    .g-2{grid-template-columns:repeat(2,1fr)}
+    @media (max-width:900px){.g-4{grid-template-columns:repeat(2,1fr)}}
+    @media (max-width:640px){.g-4,.g-2{grid-template-columns:1fr}}
+    .card{
+      background:var(--card); border:1px solid var(--line);
+      border-radius:16px; padding:18px;
+    }
+    .kpi-title{color:var(--muted); font-size:14px; margin-bottom:8px}
+    .kpi-value{font-size:28px; font-weight:800}
+    .progress{height:8px; background:#eef2f6; border-radius:999px; overflow:hidden; margin-top:8px}
+    .bar{height:100%; background:var(--brand); width:0}
+    h3{margin:0 0 12px 0; font-size:20px}
+    table{width:100%; border-collapse:collapse}
+    th,td{padding:10px 12px; border-bottom:1px solid var(--line); text-align:left}
+    th{color:#475467; font-weight:700; background:#fafbff}
+    .muted{color:var(--muted)}
+    .chip{
+      display:inline-block; margin:4px 6px 0 0;
+      padding:6px 10px; background:#f0f7f9; color:#0d5675;
+      border:1px solid #d6e7ec; border-radius:999px; font-size:13px; font-weight:600;
+    }
+    .section-title{font-size:22px; font-weight:800; margin:6px 0 14px}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="hero">
-      <h1>📊 상담 통계</h1>
-      <p>최근 현황을 한 눈에 확인하세요.</p>
-    </div>
 
-    <!-- 상단 메트릭 카드 -->
-    <div class="grid metrics">
-      <div class="card metric"><div class="label">전체 신청</div><div class="value">{{ stats.total }}</div><div class="muted">누적 건수</div></div>
-      <div class="card metric"><div class="label">처리 완료</div><div class="value">{{ stats.handled }}</div><div class="muted">답변 기록</div></div>
-      <div class="card metric"><div class="label">대기</div><div class="value">{{ stats.pending }}</div><div class="muted">미처리</div></div>
-      <div class="card metric"><div class="label">처리율</div><div class="value">{{ stats.handled_rate }}%</div><div class="bar"><span style="width: {{ stats.handled_rate }}%"></span></div></div>
-      <div class="card metric"><div class="label">오늘</div><div class="value">{{ stats.today }}</div><div class="muted">금일 접수</div></div>
-      <div class="card metric"><div class="label">최근 7일</div><div class="value">{{ stats.last7d }}</div><div class="muted">일주일 누적</div></div>
-      <div class="card metric"><div class="label">최근 30일</div><div class="value">{{ stats.last30d }}</div><div class="muted">한 달 누적</div></div>
-      {% if stats.avg_response_hours %}<div class="card metric"><div class="label">평균 응답 소요</div><div class="value">{{ stats.avg_response_hours }}h</div><div class="muted">신청→답변</div></div>{% endif %}
-    </div>
+  <div class="topbar">
+    <div class="title">📊 상담 통계</div>
+    <a class="btn secondary" href="{{ url_for('teacher_home') }}">🏠 교사 홈</a>
+    <a class="btn secondary" href="{{ url_for('statistics') }}">🔄 새로고침</a>
+  </div>
 
-    <!-- 중간 두 칼럼: 상위 주제 / 교사 활동 -->
-    <div class="two-col section">
+  <div class="container">
+
+    <!-- 요약 KPI -->
+    <div class="grid g-4">
       <div class="card">
-        <h2>🔥 상위 주제 TOP 5</h2>
-        <div class="list">
-          {% for t, n in stats.top_topics %}
-          <div class="row"><strong>{{ t }}</strong><span class="tag">{{ n }}건</span></div>
-          {% else %}<div class="muted">데이터가 없습니다.</div>{% endfor %}
-        </div>
+        <div class="kpi-title">총 신청</div>
+        <div class="kpi-value">{{ stats.total }}</div>
       </div>
-
       <div class="card">
-        <h2>🏅 최근 30일 교사 활동</h2>
-        <div class="list">
-          {% for name, cnt in stats.top_teachers_30d %}
-          <div class="row"><strong>{{ name }}</strong><span class="pill">{{ cnt }}건</span></div>
-          {% else %}<div class="muted">최근 30일 활동 데이터가 없습니다.</div>{% endfor %}
-        </div>
+        <div class="kpi-title">처리 완료</div>
+        <div class="kpi-value" style="color:#14804a">{{ stats.handled }}</div>
+      </div>
+      <div class="card">
+        <div class="kpi-title">미처리</div>
+        <div class="kpi-value" style="color:#c4320a">{{ stats.pending }}</div>
+      </div>
+      <div class="card">
+        <div class="kpi-title">처리율</div>
+        <div class="kpi-value">{{ '%.2f'|format(stats.handled_rate) }}%</div>
+        <div class="progress"><div class="bar" style="width: {{ stats.handled_rate }}%"></div></div>
       </div>
     </div>
 
-    <!-- 학년/학반 분포 + 신청자 유형 -->
-    <div class="two-col section">
+    <div class="grid g-4" style="margin-top:16px">
       <div class="card">
-        <h2>🏫 학년별 분포</h2>
-        {% set by_grade = stats.by_grade if stats.by_grade else grade_count %}
-        {% set max_grade = (by_grade.values()|max) if by_grade else 1 %}
-        <div class="list">
-          {% for g, cnt in by_grade|dictsort %}
-          <div class="row" style="gap:14px">
-            <strong>{{ g }}학년</strong>
-            <div style="flex:1"><div class="bar"><span style="width: {{ (cnt/max_grade*100)|round(0) }}%"></span></div></div>
-            <span class="tag">{{ cnt }}건</span>
-          </div>
-          {% else %}<div class="muted">데이터가 없습니다.</div>{% endfor %}
-        </div>
+        <div class="kpi-title">오늘 접수</div>
+        <div class="kpi-value">{{ stats.today }}</div>
       </div>
-
       <div class="card">
-        <h2>👨‍👩‍👧 신청자 유형</h2>
-        <div class="list">
-          <div class="row"><strong>학생</strong><span class="pill">{{ stats.applicant.student }}건 ({{ stats.applicant.student_ratio }}%)</span></div>
-          <div class="row"><strong>학부모</strong><span class="pill">{{ stats.applicant.parent }}건 ({{ stats.applicant.parent_ratio }}%)</span></div>
-        </div>
+        <div class="kpi-title">최근 7일</div>
+        <div class="kpi-value">{{ stats.last7d }}</div>
+      </div>
+      <div class="card">
+        <div class="kpi-title">최근 30일</div>
+        <div class="kpi-value">{{ stats.last30d }}</div>
+      </div>
+      <div class="card">
+        <div class="kpi-title">평균 응답시간</div>
+        <div class="kpi-value">{{ stats.avg_response_hours if stats.avg_response_hours is not none else '-' }} <span class="muted" style="font-size:16px">시간</span></div>
       </div>
     </div>
 
-    <!-- 미답변 최신 10건 -->
-    <div class="section card">
-      <h2>⏳ 미답변(최신 10건)</h2>
-      {% if stats.recent_unanswered and stats.recent_unanswered|length > 0 %}
-      <div style="overflow:auto">
+    <!-- 좌/우 메인 섹션 -->
+    <div class="grid g-2" style="margin-top:20px">
+
+      <!-- 왼쪽: 신청자 유형 + 학년 분포 -->
+      <div class="card">
+        <div class="section-title">신청자 유형</div>
+        <div class="muted" style="margin-bottom:8px">
+          학생 <b>{{ stats.applicant.student }}</b>건 · 학부모 <b>{{ stats.applicant.parent }}</b>건<br/>
+          학생 {{ '%.2f'|format(stats.applicant.student_ratio) }}% · 학부모 {{ '%.2f'|format(stats.applicant.parent_ratio) }}%
+        </div>
+
+        <div class="section-title" style="margin-top:24px">학년 분포</div>
         <table>
-          <thead><tr><th>신청일</th><th>학년/반</th><th>번호</th><th class="left">이름</th><th class="left">주제</th></tr></thead>
+          <thead>
+            <tr><th style="width:120px">학년</th><th>건수</th></tr>
+          </thead>
           <tbody>
-            {% for r in stats.recent_unanswered %}
-            <tr><td>{{ r.date }}</td><td>{{ r.grade }}-{{ r.class_num }}</td><td>{{ r.number }}</td><td class="left">{{ r.name }}</td><td class="left">{{ r.topic }}</td></tr>
+            {% for g, n in stats.by_grade|dictsort %}
+              <tr><td>{{ g }}학년</td><td>{{ n }}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-      {% else %}<div class="muted">미답변 목록이 없습니다. 👍</div>{% endif %}
-    </div>
 
-    <!-- 👇 추가: 그래프 섹션 (프런트만) -->
-    <div class="section two-col">
-      <div class="card chart-box">
-        <h2>📈 TOP5 주제 (그래프)</h2>
-        <canvas id="chartTopics"></canvas>
-        <div class="muted" id="noTopics" style="display:none">데이터가 없습니다.</div>
+      <!-- 오른쪽: 상위 주제 Top5 + 학년·반 분포 -->
+      <div class="card">
+        <div class="section-title">상위 주제 Top 5</div>
+        <table>
+          <thead>
+            <tr><th>주제</th><th>건수</th></tr>
+          </thead>
+          <tbody>
+            {% for topic, n in stats.top_topics %}
+              <tr><td>{{ topic }}</td><td>{{ n }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <div class="section-title" style="margin-top:24px">학년·반 분포</div>
+        {% for g, classes in stats.by_grade_class|dictsort %}
+          <div style="margin:6px 0 10px; font-weight:700">{{ g }}학년</div>
+          <div>
+            {% for c, n in classes|dictsort %}
+              <span class="chip">{{ g }}-{{ c }}반 · {{ n }}</span>
+            {% endfor %}
+          </div>
+        {% endfor %}
       </div>
-      <div class="card chart-box">
-        <h2>🎯 신청자 유형 비율</h2>
-        <canvas id="chartApplicant"></canvas>
-        <div class="muted" id="noApplicant" style="display:none">데이터가 없습니다.</div>
-      </div>
+
     </div>
 
-    <div class="section card chart-box">
-      <h2>🏫 학년별 분포 (그래프)</h2>
-      <canvas id="chartGrade"></canvas>
-      <div class="muted" id="noGrade" style="display:none">데이터가 없습니다.</div>
+    <!-- 미답변 최근 10건 -->
+    <div class="card" style="margin-top:20px">
+      <div class="section-title">미답변 최신 10건</div>
+      {% if stats.recent_unanswered %}
+        <table>
+          <thead>
+            <tr>
+              <th style="width:140px">신청일</th>
+              <th style="width:80px">학년</th>
+              <th style="width:80px">반</th>
+              <th style="width:80px">번호</th>
+              <th style="width:120px">이름</th>
+              <th>주제</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in stats.recent_unanswered %}
+              <tr>
+                <td>{{ r.date }}</td>
+                <td>{{ r.grade }}</td>
+                <td>{{ r.class_num }}</td>
+                <td>{{ r.number }}</td>
+                <td>{{ r.name }}</td>
+                <td>{{ r.topic }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="muted">최근 미답변 건이 없습니다.</div>
+      {% endif %}
     </div>
 
-    <div class="actions">
-      <a class="btn" href="/teacher_home">🏠 교사 홈으로</a>
-    </div>
   </div>
-
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-    (function(){
-      // 서버 데이터 → JS
-      const topTopics = {{ stats.top_topics|tojson }};
-      const applicant = {{ stats.applicant|tojson }};
-      const gradeDist = {{ (stats.by_grade if stats.by_grade else grade_count)|tojson }};
-
-      // 공통 팔레트
-      const colors = ["#22a6b3","#6c5ce7","#7ed6df","#10b981","#f59e0b","#ef4444","#3b82f6"];
-
-      // 1) TOP5 주제 막대
-      (function(){
-        const el = document.getElementById('chartTopics');
-        const empty = document.getElementById('noTopics');
-        if(!topTopics || !topTopics.length){ el.style.display='none'; empty.style.display='block'; return; }
-        const labels = topTopics.map(p=>p[0]);
-        const data = topTopics.map(p=>p[1]);
-        new Chart(el, {
-          type:'bar',
-          data:{ labels, datasets:[{ label:'건수', data, backgroundColor:colors.slice(0,labels.length) }]},
-          options:{
-            responsive:true,
-            plugins:{ legend:{ display:false }},
-            scales:{ y:{ beginAtZero:true, ticks:{ precision:0 }}}
-          }
-        });
-      })();
-
-      // 2) 신청자 유형 도넛
-      (function(){
-        const el = document.getElementById('chartApplicant');
-        const empty = document.getElementById('noApplicant');
-        const student = applicant?.student || 0;
-        const parent = applicant?.parent || 0;
-        if(student+parent === 0){ el.style.display='none'; empty.style.display='block'; return; }
-        new Chart(el, {
-          type:'doughnut',
-          data:{ labels:['학생','학부모'], datasets:[{ data:[student,parent], backgroundColor:[colors[0],colors[4]] }]},
-          options:{ plugins:{ legend:{ position:'bottom' }}}
-        });
-      })();
-
-      // 3) 학년별 분포 막대
-      (function(){
-        const el = document.getElementById('chartGrade');
-        const empty = document.getElementById('noGrade');
-        const keys = Object.keys(gradeDist||{}).sort((a,b)=>parseInt(a)-parseInt(b));
-        if(!keys.length){ el.style.display='none'; empty.style.display='block'; return; }
-        const data = keys.map(k=>gradeDist[k]);
-        new Chart(el, {
-          type:'bar',
-          data:{ labels: keys.map(k=>k+'학년'), datasets:[{ label:'건수', data, backgroundColor:colors.slice(0,keys.length) }]},
-          options:{
-            responsive:true,
-            plugins:{ legend:{ display:false }},
-            scales:{ y:{ beginAtZero:true, ticks:{ precision:0 }}}
-          }
-        });
-      })();
-    })();
-  </script>
 </body>
 </html>
