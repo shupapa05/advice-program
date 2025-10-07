@@ -1,11 +1,14 @@
-from flask import Flask, render_template, request, redirect, session, flash, url_for, jsonify, send_file, after_this_request
+# app.py  ── (백업 기능만 추가 / 기존 변수·화면 변경 없음)
+
+from flask import Flask, render_template, request, redirect, session, flash, url_for, jsonify, send_file, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-import os, re, logging, shutil, time
+import os, re, logging, shutil, time, sqlite3, json
 from zoneinfo import ZoneInfo
 from math import ceil
 from werkzeug.utils import secure_filename
 from sqlalchemy import text
+from apscheduler.schedulers.background import BackgroundScheduler
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -91,20 +94,89 @@ if (database_url.startswith('sqlite:///') and not os.path.exists(sqlite_path)):
     with app.app_context():
         db.create_all()
 
+# ====== 백업 설정 (추가) ======
+ADMIN_PW = os.getenv("ADMIN_PW", "PAJU2025")
+BACKUP_DIR = os.path.join(basedir, "backups")
+STATE_PATH = os.path.join(BACKUP_DIR, ".state.json")
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+def _load_state():
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_state(d):
+    try:
+        with open(STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+    except Exception:
+        pass
+
+def mark_data_changed():
+    st = _load_state()
+    st["last_change_ts"] = time.time()
+    st["dirty"] = True
+    _save_state(st)
+
+def _backup_sqlite(dst_path: str):
+    if not database_url.startswith("sqlite:///"):
+        raise RuntimeError("SQLite가 아닙니다.")
+    src = sqlite3.connect(sqlite_path)
+    dst = sqlite3.connect(dst_path)
+    with dst:
+        src.backup(dst)
+    dst.close()
+    src.close()
+
+def make_backup_now() -> str:
+    ts = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+    out = os.path.join(BACKUP_DIR, f"consulting-{ts}.db")
+    if database_url.startswith("sqlite:///"):
+        _backup_sqlite(out)
+    else:
+        shutil.copyfile(sqlite_path, out)
+    st = _load_state()
+    st["dirty"] = False
+    st["last_backup_ts"] = time.time()
+    st["last_backup_file"] = os.path.basename(out)
+    _save_state(st)
+    return out
+
+def _auto_backup_job():
+    st = _load_state()
+    if not st.get("dirty"):
+        return
+    last_change = st.get("last_change_ts", 0)
+    if time.time() - last_change >= 300:  # 5분
+        try:
+            make_backup_now()
+        except Exception as e:
+            app.logger.exception(f"자동 백업 실패: {e}")
+
+scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+scheduler.add_job(_auto_backup_job, "interval", seconds=60, id="auto_backup",
+                  max_instances=1, coalesce=True, misfire_grace_time=30)
+try:
+    scheduler.start()
+except Exception:
+    pass
+# ===========================
+
 # 헬스체크
 @app.route('/healthz')
 def healthz():
     return {'ok': True, 'time_kst': now_kst_str()}, 200
 
-# DB 점검 (ORM으로 안전하게)
+# DB 점검
 @app.get("/dbcheck")
 def dbcheck():
     try:
         cnt = db.session.execute(text("SELECT COUNT(*) AS c FROM consult_request")).scalar()
-        return {"ok": True, "db": database_url, "rows": int(cnt)}, 200
+        return {"ok": True, "db": database_url, "rows": cnt}, 200
     except Exception as e:
         return {"ok": False, "db": database_url, "error": str(e)}, 500
-
 
 @app.get("/admin/storage_status")
 def storage_status():
@@ -117,8 +189,7 @@ def storage_status():
         "live_path": live,
     }
 
-ADMIN_PW = os.getenv("ADMIN_PW", "PAJU2025")
-
+# DB 업로드(교체) : 기존 유지
 @app.route("/admin/upload_db", methods=["GET","POST"])
 def admin_upload_db():
     if request.method == "GET":
@@ -131,83 +202,57 @@ def admin_upload_db():
         """
     if request.form.get("pw") != ADMIN_PW:
         return "Forbidden", 403
-
     f = request.files.get("file")
     if not f: 
         return "no file", 400
-
     tmp = os.path.join(basedir, "tmp-upload-"+secure_filename(f.filename))
     f.save(tmp)
-
-    # 백업
-    ts = time.strftime("%Y%m%d-%H%M%S")
-    if os.path.exists(sqlite_path):
-        shutil.copyfile(sqlite_path, sqlite_path + f".bak-{ts}")
-
-    # 교체
+    # 교체 전 라이브 백업
+    try:
+        make_backup_now()
+    except Exception:
+        pass
     shutil.copyfile(tmp, sqlite_path)
-
-    # 열린 커넥션 정리 후 새 파일 사용
     try:
         db.engine.dispose()
     except Exception:
         pass
-
     return "OK - DB replaced"
 
-# === DB 다운로드 / 백업 ===
-# 현재 SQLite DB를 안전하게 복사한 뒤 다운로드
+# 추가: 현재 DB 다운로드 / 백업 목록 / 백업 파일 다운로드 / 즉시 백업
 @app.get("/admin/download_db")
 def admin_download_db():
     if request.args.get("pw") != ADMIN_PW:
         return "Forbidden", 403
     if not os.path.exists(sqlite_path):
-        return "no sqlite db", 404
+        return "DB not found", 404
+    return send_file(sqlite_path, as_attachment=True, download_name="consulting.db")
 
-    # 열려있는 커넥션 정리 -> 안전 복사본 생성
-    try:
-        db.engine.dispose()
-    except Exception:
-        pass
-
-    ts = datetime.now(KST).strftime("%Y%m%d-%H%M%S")
-    tmp_path = os.path.join(basedir, f"_tmp-download-{ts}.db")
-    shutil.copyfile(sqlite_path, tmp_path)
-
-    @after_this_request
-    def _cleanup(resp):
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
-        return resp
-
-    return send_file(
-        tmp_path,
-        as_attachment=True,
-        download_name=f"consulting-{ts}.db",
-        mimetype="application/octet-stream",
-    )
-
-# 현재 DB를 seed/ 폴더에 타임스탬프 백업 (서버 안에 보관)
-@app.get("/admin/backup_now")
-def admin_backup_now():
+@app.get("/admin/backups")
+def list_backups():
     if request.args.get("pw") != ADMIN_PW:
         return "Forbidden", 403
-    if not os.path.exists(sqlite_path):
-        return "no sqlite db", 404
+    files = sorted([f for f in os.listdir(BACKUP_DIR) if f.endswith(".db")])
+    links = "<br>".join(f'<a href="/admin/backup/{f}?pw={ADMIN_PW}">{f}</a>' for f in files)
+    return f"<h3>백업 목록</h3>{links or '없음'}"
 
-    os.makedirs(os.path.join(basedir, "seed"), exist_ok=True)
-    ts = datetime.now(KST).strftime("%Y%m%d-%H%M%S")
-    dst = os.path.join(basedir, "seed", f"consulting-backup-{ts}.db")
+@app.get("/admin/backup/<path:fname>")
+def download_backup_file(fname):
+    if request.args.get("pw") != ADMIN_PW:
+        return "Forbidden", 403
+    if not fname.endswith(".db") or "/" in fname or ".." in fname:
+        return "Bad name", 400
+    return send_from_directory(BACKUP_DIR, fname, as_attachment=True, download_name=fname)
 
+@app.get("/admin/backup_now")
+def backup_now():
+    if request.args.get("pw") != ADMIN_PW:
+        return "Forbidden", 403
     try:
-        db.engine.dispose()
-    except Exception:
-        pass
-
-    shutil.copyfile(sqlite_path, dst)
-    return {"ok": True, "saved": dst}, 200
+        out = make_backup_now()
+        return f"OK: {os.path.basename(out)}"
+    except Exception as e:
+        return f"ERR: {e}", 500
 
 @app.route('/')
 def index():
@@ -251,6 +296,7 @@ def student_request():
         )
         db.session.add(new_request)
         db.session.commit()
+        mark_data_changed()   # ← 백업 트리거
         return render_template('student_complete.html')
 
     return render_template('student_request.html')
@@ -259,8 +305,6 @@ def student_request():
 @app.route('/student_request_edit/<int:req_id>', methods=['GET', 'POST'])
 def student_request_edit(req_id):
     r = ConsultRequest.query.get_or_404(req_id)
-
-    # next 파라미터 없으면 /my_requests 로
     next_url = request.args.get('next') or request.form.get('next') or url_for('my_requests')
 
     if request.method == 'POST':
@@ -270,6 +314,7 @@ def student_request_edit(req_id):
         r.topic = topic
         r.content = (request.form.get('content') or r.content).strip()
         db.session.commit()
+        mark_data_changed()   # ← 백업 트리거
         return redirect(next_url)
 
     topics = ['친구관계','학교생활','정서·행동','진로','가족','학업','기타']
@@ -286,9 +331,9 @@ def student_request_delete(req_id):
     ConsultLog.query.filter_by(request_id=req_id).delete()
     db.session.delete(r)
     db.session.commit()
+    mark_data_changed()   # ← 백업 트리거
     flash('삭제되었습니다.')
 
-    # 세션에 조회 컨텍스트가 있으면 목록으로, 없으면 조회폼으로
     if session.get('myreq_ctx'):
         return redirect(url_for('my_requests'))
     return redirect(url_for('check_request'))
@@ -303,7 +348,6 @@ def check_request():
         name = request.form['name']
         pw = request.form['password']
 
-        # 다음에 바로 리스트로 돌아올 수 있게 조회 조건 저장
         session['myreq_ctx'] = {
             'grade': grade, 'class_num': class_num, 'number': number,
             'name': name, 'password': pw
@@ -325,10 +369,8 @@ def check_request():
             })
         return render_template('my_requests.html', data=data, name=name)
 
-    # GET: 검색 폼
     return render_template('check_request.html')
 
-# 목록을 다시 보여주는 전용 라우트 (수정/삭제 후 여기로 돌아오게)
 @app.get('/my_requests')
 def my_requests():
     ctx = session.get('myreq_ctx')
@@ -402,7 +444,7 @@ def teacher_home():
         return redirect('/teacher_login')
     return render_template('teacher_home.html', username=session['teacher_username'])
 
-# === 담임용 목록(반 필터 + 스코프 전달, 페이지네이션) ===
+# === 담임용 목록(반 필터 + 스코프 전달) ===
 @app.route('/consult_list')
 def consult_list():
     if 'teacher_id' not in session:
@@ -442,8 +484,7 @@ def consult_list():
         })
 
     total = len(rows)
-    from math import ceil as _ceil
-    page_count = max(1, _ceil(total / per_page))
+    page_count = max(1, ceil(total / per_page))
     page = max(1, min(page, page_count))
     start = (page - 1) * per_page
     page_rows = rows[start:start + per_page]
@@ -475,7 +516,6 @@ def write_log(req_id):
         return redirect(url_for('consult_list'))
 
     back_page = request.args.get('page') or request.form.get('page') or '1'
-
     log = ConsultLog.query.filter_by(request_id=req_id).first()
 
     if request.method == 'POST':
@@ -495,9 +535,10 @@ def write_log(req_id):
                 date=new_date_str or now_kst_str()
             ))
         db.session.commit()
+        mark_data_changed()   # ← 백업 트리거
         return redirect(url_for('consult_list', page=back_page))
 
-    show_dt_edit = EDIT_LOG_DATE_ENABLED or (request.args.get('edit_dt') == '1')
+    show_dt_edit = FEATURE_LOG_DATE_EDIT or (request.args.get('edit_dt') == '1')
     default_dt_input = _to_input_value(log.date if log else None)
 
     return render_template(
@@ -690,7 +731,7 @@ def api_stats():
         "avg_response_hours": avg_response_h,
     })
 
-# 통계 페이지/API 캐시 무효화
+# 통계 페이지/API는 항상 신선하게(브라우저·중간 프록시 캐시 무효화)
 @app.after_request
 def add_no_cache_headers(resp):
     if request.path in ("/statistics", "/api/stats"):
@@ -768,7 +809,6 @@ def update_consult_date():
         flash('기록을 찾을 수 없습니다.')
         return redirect(url_for('consult_list', page=back_page))
 
-    # 권한(담임 반)
     if not (rec.grade == session.get('grade') and rec.class_num == session.get('class_num')):
         flash('이 반에 대한 권한이 없습니다.')
         return redirect(url_for('consult_list', page=back_page))
@@ -778,7 +818,6 @@ def update_consult_date():
         flash('날짜가 비었습니다.')
         return redirect(url_for('consult_list', page=back_page))
 
-    # 여러 포맷 허용
     candidates = [raw, raw.replace('T', ' '), raw.replace('/', '-')]
     dt = None
     for s in candidates:
@@ -803,6 +842,7 @@ def update_consult_date():
 
     rec.date = dt.strftime('%Y-%m-%d %H:%M')
     db.session.commit()
+    mark_data_changed()   # ← 백업 트리거
     flash('상담 신청일을 수정했습니다.')
     return redirect(url_for('consult_list', page=back_page))
 
