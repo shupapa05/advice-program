@@ -89,154 +89,171 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
 
-  <script>
-    (function () {
-      const firebaseConfig = {
-        apiKey: "AIzaSyBddJ-lxmjhIfYe-YR77wZrKRm6V5DeyE",
-        authDomain: "advice-e7ca2.firebaseapp.com",
-        projectId: "advice-e7ca2",
-      };
-      if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
-      const db  = firebase.firestore();
-      const COL = "counsel_records_v1";
+ <script>
+  (function () {
+    // --- Firebase ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyBddJ-lxmjhIfYe-YR77wZrKRm6V5DeyE",
+      authDomain: "advice-e7ca2.firebaseapp.com",
+      projectId: "advice-e7ca2",
+    };
+    if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
+    const db  = firebase.firestore();
+    const COL = "counsel_records_v1";
 
-      const table = document.getElementById('reqTable');
-      const tbody = document.getElementById('reqTbody') || table.querySelector('tbody');
+    const table = document.getElementById('reqTable');
+    const tbody = document.getElementById('reqTbody') || table.querySelector('tbody');
 
-      // 담임 스코프(있으면 그 반만)
-      const SCOPE = document.getElementById('scope');
-      const FILTER_GRADE = SCOPE?.dataset.grade || null;
-      const FILTER_CLASS = SCOPE?.dataset.class || null;
-      const passScope = (g, c) => {
-        if (!FILTER_GRADE || !FILTER_CLASS) return true;
-        return String(g) === String(FILTER_GRADE) && String(c) === String(FILTER_CLASS);
-      };
+    // --- 담임 스코프(있으면 그 반만) ---
+    const SCOPE = document.getElementById('scope');
+    const FILTER_GRADE = SCOPE?.dataset.grade || null;
+    const FILTER_CLASS = SCOPE?.dataset.class || null;
 
-      function parseDateToMs(txt){
-        if(!txt) return 0;
-        const t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ','T') : txt;
-        const d = new Date(t); if(!isNaN(d)) return d.getTime();
-        const m = txt.match(/(\d{4})[^\d]?(\d{1,2})[^\d]?(\d{1,2}).*?(\d{1,2})?:?(\d{1,2})?/);
-        if(m){ const [_,Y,M,D,h='0',n='0']=m;
-          return new Date(`${Y.padStart(4,'0')}-${String(M).padStart(2,'0')}-${String(D).padStart(2,'0')}T${String(h).padStart(2,'0')}:${String(n).padStart(2,'0')}:00`).getTime();
-        }
-        return 0;
+    // 값 정규화/비교(숫자/문자 모두 대응)
+    const norm = v => String(v ?? "").trim().replace(/\s+/g,"");
+    const same = (a,b) => {
+      const na = parseInt(a,10), nb = parseInt(b,10);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na===nb;
+      return norm(a)===norm(b);
+    };
+    const passScope = (g, c) => {
+      if (!FILTER_GRADE || !FILTER_CLASS) return true;  // 상담/관리자는 전체
+      return same(g, FILTER_GRADE) && same(c, FILTER_CLASS);
+    };
+
+    // 날짜 파싱
+    function parseDateToMs(txt){
+      if(!txt) return 0;
+      const t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ','T') : txt;
+      const d = new Date(t); if(!isNaN(d)) return d.getTime();
+      const m = txt.match(/(\d{4})[^\d]?(\d{1,2})[^\d]?(\d{1,2}).*?(\d{1,2})?:?(\d{1,2})?/);
+      if(m){ const [_,Y,M,D,h='0',n='0']=m;
+        return new Date(`${Y.padStart(4,'0')}-${String(M).padStart(2,'0')}-${String(D).padStart(2,'0')}T${String(h).padStart(2,'0')}:${String(n).padStart(2,'0')}:00`).getTime();
       }
+      return 0;
+    }
+    function sortOnlyServer(){
+      const rows=[...tbody.querySelectorAll('tr')].map(tr=>{
+        const td=tr.querySelector('td'); const inp=td?.querySelector('input[type=datetime-local]');
+        const txt=inp?.value || td?.innerText.trim() || '';
+        return {tr,time:parseDateToMs(txt)};
+      });
+      rows.sort((a,b)=>b.time-a.time); tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
+    }
 
-      function sortOnlyServer(){
-        const rows=[...tbody.querySelectorAll('tr')].map(tr=>{
-          const td=tr.querySelector('td'); const inp=td?.querySelector('input[type=datetime-local]');
-          const txt=inp?.value || td?.innerText.trim() || '';
-          return {tr,time:parseDateToMs(txt)};
-        });
-        rows.sort((a,b)=>b.time-a.time); tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
-      }
-
-      async function loadAndMerge() {
-        try {
-          // 0) 서버 테이블에서 혹시 스코프 밖 행이 섞여 왔으면 제거(이중 안전장치)
-          if (FILTER_GRADE && FILTER_CLASS) {
-            [...tbody.querySelectorAll('tr')].forEach(tr=>{
-              const tds = tr.querySelectorAll('td');
-              const g = (tds[1]?.innerText||'').trim();
-              const c = (tds[2]?.innerText||'').trim();
-              if (!passScope(g, c)) tr.remove();
-            });
-          }
-
-          // 1) 서버행 인덱스(신청ID → tr)와 정렬용 배열
-          const rowByRid = new Map();
-          const rows = [];
-          const serverRows = Array.from(tbody.querySelectorAll('tr'));
-          serverRows.forEach(tr=>{
-            let rid = tr.querySelector('input[name="id"]')?.value || null;
-            if (!rid) {
-              const href = tr.querySelector('a.btn')?.getAttribute('href');
-              const m = href?.match(/\/write_log\/(\d+)/); if (m) rid = m[1];
-            }
-            if (rid) rowByRid.set(String(rid), tr);
-
-            // 기본 정렬 키 = 신청일(서버)
-            const firstTd = tr.querySelector('td');
-            const inp = firstTd?.querySelector('input[type=datetime-local]');
-            const txt = inp?.value || firstTd?.innerText.trim() || '';
-            tr.dataset.time = String(parseDateToMs(txt));
-            rows.push({tr, time:+tr.dataset.time});
-          });
-
-          // 2) Firestore 병합(스코프 필터 적용)
-          const answered = new Set();
-          const snap = await db.collection(COL).orderBy("dateISO","desc").get();
-          snap.forEach(doc=>{
-            const r = doc.data();
-            if (!passScope(r.grade, r.class_num)) return; // 담임 반 밖이면 스킵
-
-            const rid = r.requestId || (doc.id?.startsWith('req_') ? doc.id.slice(4) : null);
-            const d   = new Date(r.dateISO || r.updatedAt || Date.now());
-            if (rid) answered.add(String(rid));
-
-            let tr = rid ? rowByRid.get(String(rid)) : null;
-            if (!tr) {
-              // 서버에 없는 건은 새 행 추가(신청일은 공란)
-              const href = rid ? `/write_log/${rid}` : '#';
-              tr = document.createElement('tr');
-              tr.innerHTML = `
-                <td></td>
-                <td>${r.grade??''}</td>
-                <td>${r.class_num??''}</td>
-                <td>${r.number??''}</td>
-                <td>${r.name??''}</td>
-                <td>${r.topic??''}</td>
-                <td class="content-cell">${(r.memo??'').replace(/</g,"&lt;")}</td>
-                <td><span class="status-dot status-done" title="작성됨"></span></td>
-                <td>${href==='#'
-                      ? '<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'
-                      : `<a class="btn" href="${href}">수정</a>`}</td>`;
-              tbody.appendChild(tr);
-              rows.push({tr, time:d.getTime()||0});
-            } else {
-              // 상태/버튼만 확정
-              const tds = tr.querySelectorAll('td');
-              tds[7].innerHTML = `<span class="status-dot status-done" title="작성됨"></span>`;
-              tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">수정</a>`;
-              // 정렬 기준은 Firestore 작성일 우선
-              tr.dataset.time = String(d.getTime()||0);
-            }
-          });
-
-          // 3) Firestore 문서가 없는 서버행 = 미작성
-          serverRows.forEach(tr=>{
-            let rid = tr.querySelector('input[name="id"]')?.value || null;
-            if (!rid) {
-              const href = tr.querySelector('a.btn')?.getAttribute('href');
-              const m = href?.match(/\/write_log\/(\d+)/); if (m) rid = m[1];
-            }
-            if (!rid || answered.has(String(rid))) return;
+    async function loadAndMerge() {
+      try {
+        // (A) 서버 테이블에서 스코프 밖 행 제거(혹시 섞여 왔을 때 대비)
+        if (FILTER_GRADE && FILTER_CLASS) {
+          [...tbody.querySelectorAll('tr')].forEach(tr=>{
             const tds = tr.querySelectorAll('td');
-            tds[7].innerHTML = `<span class="status-dot status-pending" title="미작성"></span>`;
-            tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">작성</a>`;
+            const g = (tds[1]?.innerText||'').trim();
+            const c = (tds[2]?.innerText||'').trim();
+            if (!passScope(g, c)) tr.remove();
           });
-
-          // 4) 최신순 정렬
-          rows.forEach(r=>{ if(!r.time && r.tr?.dataset?.time) r.time = +r.tr.dataset.time; });
-          rows.sort((a,b)=>b.time-a.time);
-          tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
-
-          // 5) 신청일(서버) 폼 제출 시 포맷 보정(T→공백)
-          document.querySelectorAll('.date-form').forEach(f=>{
-            f.addEventListener('submit', ()=>{
-              const inp=f.querySelector('input[name="date"]');
-              if (inp && inp.value.includes('T')) inp.value = inp.value.replace('T',' ');
-            });
-          });
-        } catch (e) {
-          console.warn('Firestore 통합 실패 → 서버 데이터만 정렬:', e);
-          sortOnlyServer();
         }
-      }
 
-      loadAndMerge();
+        // (B) 서버행 인덱싱 + 정렬용 배열
+        const rowByRid = new Map();
+        const rows = [];
+        const serverRows = Array.from(tbody.querySelectorAll('tr'));
+        serverRows.forEach(tr=>{
+          let rid = tr.querySelector('input[name="id"]')?.value || null;
+          if (!rid) {
+            const href = tr.querySelector('a.btn')?.getAttribute('href');
+            const m = href?.match(/\/write_log\/(\d+)/); if (m) rid = m[1];
+          }
+          if (rid) rowByRid.set(String(rid), tr);
+
+          const firstTd = tr.querySelector('td');
+          const inp = firstTd?.querySelector('input[type=datetime-local]');
+          const txt = inp?.value || firstTd?.innerText.trim() || '';
+          tr.dataset.time = String(parseDateToMs(txt));
+          rows.push({tr, time:+tr.dataset.time});
+        });
+
+        // (C) Firestore 쿼리도 스코프 필터 적용 (타입 불일치 대비)
+        let q = db.collection(COL);
+        if (FILTER_GRADE && FILTER_CLASS) {
+          const gNum = parseInt(FILTER_GRADE,10);
+          const cNum = parseInt(FILTER_CLASS,10);
+          const gVal = Number.isNaN(gNum) ? FILTER_GRADE : gNum;
+          const cVal = Number.isNaN(cNum) ? FILTER_CLASS : cNum;
+          q = q.where('grade','==', gVal).where('class_num','==', cVal);
+        }
+        q = q.orderBy('dateISO','desc');
+
+        const answered = new Set();
+        const snap = await q.get();
+
+        // (D) 병합
+        snap.forEach(doc=>{
+          const r = doc.data();
+          // 혹시 타입 불일치로 where가 못 걸렸을 상황 대비, 한 번 더 체크
+          if (!passScope(r.grade, r.class_num)) return;
+
+          const rid = r.requestId || (doc.id?.startsWith('req_') ? doc.id.slice(4) : null);
+          const d   = new Date(r.dateISO || r.updatedAt || Date.now());
+          if (rid) answered.add(String(rid));
+
+          let tr = rid ? rowByRid.get(String(rid)) : null;
+          if (!tr) {
+            const href = rid ? `/write_log/${rid}` : '#';
+            tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td></td>
+              <td>${r.grade??''}</td>
+              <td>${r.class_num??''}</td>
+              <td>${r.number??''}</td>
+              <td>${r.name??''}</td>
+              <td>${r.topic??''}</td>
+              <td style="text-align:left">${(r.memo??'').replace(/</g,"&lt;")}</td>
+              <td><span class="status-dot status-done" title="작성됨"></span></td>
+              <td>${href==='#'
+                    ? '<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'
+                    : `<a class="btn" href="${href}">수정</a>`}</td>`;
+            tbody.appendChild(tr);
+            rows.push({tr, time:d.getTime()||0});
+          } else {
+            const tds = tr.querySelectorAll('td');
+            tds[7].innerHTML = `<span class="status-dot status-done" title="작성됨"></span>`;
+            tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">수정</a>`;
+            tr.dataset.time = String(d.getTime()||0); // 작성일 기준 정렬
+          }
+        });
+
+        // (E) 미작성 행(= Firestore 문서 없음)
+        serverRows.forEach(tr=>{
+          let rid = tr.querySelector('input[name="id"]')?.value || null;
+          if (!rid) {
+            const href = tr.querySelector('a.btn')?.getAttribute('href');
+            const m = href?.match(/\/write_log\/(\d+)/); if (m) rid = m[1];
+          }
+          if (!rid || answered.has(String(rid))) return;
+          const tds = tr.querySelectorAll('td');
+          tds[7].innerHTML = `<span class="status-dot status-pending" title="미작성"></span>`;
+          tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">작성</a>`;
+        });
+
+        // (F) 최신순 정렬
+        rows.forEach(r=>{ if(!r.time && r.tr?.dataset?.time) r.time = +r.tr.dataset.time; });
+        rows.sort((a,b)=>b.time-a.time);
+        tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
+
+        // (G) 신청일(서버) 폼 제출 시 포맷 보정(T→공백)
+        document.querySelectorAll('.date-form').forEach(f=>{
+          f.addEventListener('submit', ()=>{
+            const inp=f.querySelector('input[name="date"]');
+            if (inp && inp.value.includes('T')) inp.value = inp.value.replace('T',' ');
+          });
+        });
+      } catch (e) {
+        console.warn('Firestore 통합 실패 → 서버 데이터만 정렬:', e);
+        sortOnlyServer();
+      }
     })();
-  </script>
+</script>
+
 </body>
 </html>
+
