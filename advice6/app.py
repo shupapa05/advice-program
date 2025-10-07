@@ -154,7 +154,7 @@ def student_request():
 def student_request_edit(req_id):
     r = ConsultRequest.query.get_or_404(req_id)
 
-    # 🔸 next 파라미터 없으면 /my_requests 로
+    # next 파라미터 없으면 /my_requests 로
     next_url = request.args.get('next') or request.form.get('next') or url_for('my_requests')
 
     if request.method == 'POST':
@@ -169,8 +169,6 @@ def student_request_edit(req_id):
     topics = ['친구관계','학교생활','정서·행동','진로','가족','학업','기타']
     return render_template('student_request_edit.html', req=r, topics=topics, next_url=next_url)
 
-
-
 @app.route('/student_request_delete/<int:req_id>', methods=['POST'])
 def student_request_delete(req_id):
     r = ConsultRequest.query.get_or_404(req_id)
@@ -178,11 +176,17 @@ def student_request_delete(req_id):
     if r.password != pw:
         flash('비밀번호가 올바르지 않습니다.')
         return redirect(url_for('check_request'))
+
     ConsultLog.query.filter_by(request_id=req_id).delete()
     db.session.delete(r)
     db.session.commit()
     flash('삭제되었습니다.')
+
+    # 세션에 조회 컨텍스트가 있으면 목록으로, 없으면 조회폼으로
+    if session.get('myreq_ctx'):
+        return redirect(url_for('my_requests'))
     return redirect(url_for('check_request'))
+
 
 # === 내가 신청한 내역 보기 ===
 @app.route('/check_request', methods=['GET', 'POST'])
@@ -194,7 +198,7 @@ def check_request():
         name = request.form['name']
         pw = request.form['password']
 
-        # 🔸 다음에 바로 리스트로 돌아올 수 있게 조회 조건 저장
+        # 다음에 바로 리스트로 돌아올 수 있게 조회 조건 저장
         session['myreq_ctx'] = {
             'grade': grade, 'class_num': class_num, 'number': number,
             'name': name, 'password': pw
@@ -216,8 +220,12 @@ def check_request():
             })
         return render_template('my_requests.html', data=data, name=name)
 
+    # GET: 검색 폼
     return render_template('check_request.html')
-    @app.get('/my_requests')
+
+
+# 목록을 다시 보여주는 전용 라우트 (수정/삭제 후 여기로 돌아오게)
+@app.get('/my_requests')
 def my_requests():
     ctx = session.get('myreq_ctx')
     if not ctx:
