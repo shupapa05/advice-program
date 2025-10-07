@@ -1,10 +1,11 @@
-from flask import Flask, render_template, request, redirect, session, flash, url_for, jsonify
+from flask import Flask, render_template, request, redirect, session, flash, url_for, jsonify, send_file, after_this_request
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import os, re, logging, shutil, time
 from zoneinfo import ZoneInfo
 from math import ceil
 from werkzeug.utils import secure_filename
+from sqlalchemy import text
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -99,10 +100,11 @@ def healthz():
 @app.get("/dbcheck")
 def dbcheck():
     try:
-        cnt = ConsultRequest.query.count()
+        cnt = db.session.execute(text("SELECT COUNT(*) FROM consult_request")).scalar() or 0
         return {"ok": True, "db": database_url, "rows": int(cnt)}, 200
     except Exception as e:
         return {"ok": False, "db": database_url, "error": str(e)}, 500
+
 
 @app.get("/admin/storage_status")
 def storage_status():
@@ -152,6 +154,60 @@ def admin_upload_db():
         pass
 
     return "OK - DB replaced"
+
+# === DB 다운로드 / 백업 ===
+# 현재 SQLite DB를 안전하게 복사한 뒤 다운로드
+@app.get("/admin/download_db")
+def admin_download_db():
+    if request.args.get("pw") != ADMIN_PW:
+        return "Forbidden", 403
+    if not os.path.exists(sqlite_path):
+        return "no sqlite db", 404
+
+    # 열려있는 커넥션 정리 -> 안전 복사본 생성
+    try:
+        db.engine.dispose()
+    except Exception:
+        pass
+
+    ts = datetime.now(KST).strftime("%Y%m%d-%H%M%S")
+    tmp_path = os.path.join(basedir, f"_tmp-download-{ts}.db")
+    shutil.copyfile(sqlite_path, tmp_path)
+
+    @after_this_request
+    def _cleanup(resp):
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+        return resp
+
+    return send_file(
+        tmp_path,
+        as_attachment=True,
+        download_name=f"consulting-{ts}.db",
+        mimetype="application/octet-stream",
+    )
+
+# 현재 DB를 seed/ 폴더에 타임스탬프 백업 (서버 안에 보관)
+@app.get("/admin/backup_now")
+def admin_backup_now():
+    if request.args.get("pw") != ADMIN_PW:
+        return "Forbidden", 403
+    if not os.path.exists(sqlite_path):
+        return "no sqlite db", 404
+
+    os.makedirs(os.path.join(basedir, "seed"), exist_ok=True)
+    ts = datetime.now(KST).strftime("%Y%m%d-%H%M%S")
+    dst = os.path.join(basedir, "seed", f"consulting-backup-{ts}.db")
+
+    try:
+        db.engine.dispose()
+    except Exception:
+        pass
+
+    shutil.copyfile(sqlite_path, dst)
+    return {"ok": True, "saved": dst}, 200
 
 @app.route('/')
 def index():
