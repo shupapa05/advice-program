@@ -95,18 +95,17 @@ if (database_url.startswith('sqlite:///') and not os.path.exists(sqlite_path)):
 def healthz():
     return {'ok': True, 'time_kst': now_kst_str()}, 200
 
-# DB 점검
+# DB 점검 (ORM으로 안전하게)
 @app.get("/dbcheck")
 def dbcheck():
     try:
-        cnt = db.session.execute(text("SELECT COUNT(*) AS c FROM consult_request")).scalar()
-return {"ok": True, "db": database_url, "rows": cnt}, 200
+        cnt = ConsultRequest.query.count()
+        return {"ok": True, "db": database_url, "rows": int(cnt)}, 200
     except Exception as e:
         return {"ok": False, "db": database_url, "error": str(e)}, 500
 
 @app.get("/admin/storage_status")
 def storage_status():
-    import os
     seed = os.path.join(basedir, "seed", "consulting-seed.db")
     live = sqlite_path  # advice6/consulting.db
     return {
@@ -132,7 +131,8 @@ def admin_upload_db():
         return "Forbidden", 403
 
     f = request.files.get("file")
-    if not f: return "no file", 400
+    if not f: 
+        return "no file", 400
 
     tmp = os.path.join(basedir, "tmp-upload-"+secure_filename(f.filename))
     f.save(tmp)
@@ -200,7 +200,6 @@ def student_request():
     return render_template('student_request.html')
 
 # === 학생 신청 수정/삭제 ===
-# 학생이 자기 신청내용을 수정 (비밀번호 없이, 기존 작성 폼과 동일 UI)
 @app.route('/student_request_edit/<int:req_id>', methods=['GET', 'POST'])
 def student_request_edit(req_id):
     r = ConsultRequest.query.get_or_404(req_id)
@@ -238,7 +237,6 @@ def student_request_delete(req_id):
         return redirect(url_for('my_requests'))
     return redirect(url_for('check_request'))
 
-
 # === 내가 신청한 내역 보기 ===
 @app.route('/check_request', methods=['GET', 'POST'])
 def check_request():
@@ -274,13 +272,11 @@ def check_request():
     # GET: 검색 폼
     return render_template('check_request.html')
 
-
 # 목록을 다시 보여주는 전용 라우트 (수정/삭제 후 여기로 돌아오게)
 @app.get('/my_requests')
 def my_requests():
     ctx = session.get('myreq_ctx')
     if not ctx:
-        # 세션 없으면 조회 폼으로
         return redirect(url_for('check_request'))
 
     matched = ConsultRequest.query.filter_by(
@@ -298,7 +294,6 @@ def my_requests():
             'content': r.content, 'status': status, 'answer': answer
         })
     return render_template('my_requests.html', data=data, name=ctx['name'])
-
 
 # === 교사 인증/홈 ===
 @app.route('/teacher_signup', methods=['GET', 'POST'])
@@ -351,7 +346,7 @@ def teacher_home():
         return redirect('/teacher_login')
     return render_template('teacher_home.html', username=session['teacher_username'])
 
-# === 담임용 목록(반 필터 + 스코프 전달) ===
+# === 담임용 목록(반 필터 + 스코프 전달, 페이지네이션) ===
 @app.route('/consult_list')
 def consult_list():
     if 'teacher_id' not in session:
@@ -360,11 +355,9 @@ def consult_list():
     grade = session['grade']
     class_num = session['class_num']
 
-    # ▶ 현재 페이지/페이지당 개수
     page = int(request.args.get('page', 1))
     per_page = int(request.args.get('per_page', 8))
 
-    # 담임 반 기준으로 필터
     filtered = (ConsultRequest.query
                 .filter_by(grade=grade, class_num=class_num)
                 .order_by(ConsultRequest.date.desc())
@@ -392,10 +385,10 @@ def consult_list():
             'has_log': bool(log),
         })
 
-    # 페이지네이션
     total = len(rows)
-    page_count = max(1, ceil(total / per_page))
-    page = max(1, min(page, page_count))  # 경계 보정
+    from math import ceil as _ceil
+    page_count = max(1, _ceil(total / per_page))
+    page = max(1, min(page, page_count))
     start = (page - 1) * per_page
     page_rows = rows[start:start + per_page]
 
@@ -413,7 +406,6 @@ def consult_list():
 # === 상담일지 작성/수정 ===
 FEATURE_LOG_DATE_EDIT = EDIT_LOG_DATE_ENABLED
 
-# ===== write_log: 작성/수정 후 보던 페이지로 복귀 =====
 @app.route('/write_log/<int:req_id>', methods=['GET', 'POST'])
 def write_log(req_id):
     if 'teacher_id' not in session:
@@ -421,7 +413,6 @@ def write_log(req_id):
 
     request_data = ConsultRequest.query.get_or_404(req_id)
 
-    # 권한 체크(담임 반)
     if not (request_data.grade == session.get('grade') and
             request_data.class_num == session.get('class_num')):
         flash('이 반에 대한 권한이 없습니다.')
@@ -450,7 +441,7 @@ def write_log(req_id):
         db.session.commit()
         return redirect(url_for('consult_list', page=back_page))
 
-    show_dt_edit = EDIT_LOG_DATE_ENABLED or (request.args.get('edit_dt') == '1')
+    show_dt_edit = EDIT_LOG_DATE_EDIT or (request.args.get('edit_dt') == '1')
     default_dt_input = _to_input_value(log.date if log else None)
 
     return render_template(
@@ -461,6 +452,7 @@ def write_log(req_id):
         show_dt_edit=show_dt_edit,
         back_page=back_page,
     )
+
 # === 통계 ===
 @app.route('/statistics')
 def statistics():
@@ -642,7 +634,7 @@ def api_stats():
         "avg_response_hours": avg_response_h,
     })
 
-# 통계 페이지/API는 항상 신선하게(브라우저·중간 프록시 캐시 무효화)
+# 통계 페이지/API 캐시 무효화
 @app.after_request
 def add_no_cache_headers(resp):
     if request.path in ("/statistics", "/api/stats"):
@@ -650,7 +642,6 @@ def add_no_cache_headers(resp):
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
     return resp
-    
 
 # 질문 템플릿
 @app.route('/question_template', methods=['GET', 'POST'])
