@@ -18,14 +18,9 @@
     .date-submit{padding:6px 10px;border:none;border-radius:6px;background:#6c5ce7;color:#fff;cursor:pointer}
     .date-submit:hover{background:#5a4bd6}
     .status-dot{display:inline-block;width:12px;height:12px;border-radius:999px;vertical-align:middle}
-    .status-pending{background:#f5a524} /* 노랑 */
-    .status-done{background:#10b981}    /* 초록 */
-    .fs-meta{margin-top:6px;font-size:12px;color:#4b5563}
-    .mini-input{width:160px;padding:4px 6px;border:1px solid #ccc;border-radius:6px;font:inherit}
-    .mini-btn{padding:4px 8px;border:none;border-radius:6px;background:#0ea5e9;color:#fff;cursor:pointer;font-size:12px}
-    .mini-btn:hover{background:#0284c7}
+    .status-pending{background:#f5a524} /* 노랑: 미작성 */
+    .status-done{background:#10b981}    /* 초록: 작성됨 */
     .content-cell{ text-align:left }
-    .student-edit{ font-size:12px; margin-left:6px; }
   </style>
 </head>
 <body>
@@ -39,11 +34,10 @@
     {% endif %}
   {% endwith %}
 
-  <!-- 표시/수정 토글 (없으면 기본 1) -->
-  <div id="flags"
-       data-fs-edit="{{ 1 if fs_date_edit_enabled|default(1) else 0 }}"
-       data-student-edit="{{ 1 if student_edit_enabled|default(0) else 0 }}">
-  </div>
+  <!-- 서버에서 내려주는 스코프(담임용 반 필터). 상담/관리자는 빈 값 -->
+  <div id="scope"
+       data-grade="{{ filter_grade if filter_grade is not none else '' }}"
+       data-class="{{ filter_class if filter_class is not none else '' }}"></div>
 
   <table id="reqTable">
     <thead>
@@ -53,8 +47,8 @@
         <th>학년</th><th>반</th><th>번호</th><th>이름</th>
         <th>주제</th>
         <th>내용</th>
-        <!-- ② 상태/작성일(교사, Firestore) -->
-        <th>상태 / 작성일(교사)</th>
+        <!-- ② 상태만(색 점) -->
+        <th>상태</th>
         <th>작성</th>
       </tr>
     </thead>
@@ -63,7 +57,7 @@
       <tr>
         <td>
           {% if edit_date_enabled %}
-          <!-- 신청일 수정: 서버만 업데이트 -->
+          <!-- 신청일 수정: 서버 DB만 업데이트 -->
           <form class="date-form" action="/teacher/update_date" method="post">
             <input type="hidden" name="id" value="{{ r.id }}" />
             <input class="date-input" type="datetime-local" name="date" value="{{ r.date|replace(' ', 'T') }}" step="60" required />
@@ -78,13 +72,8 @@
         <td>{{ r.number }}</td>
         <td>{{ r.name }}</td>
         <td>{{ r.topic }}</td>
-        <td class="content-cell">
-          {{ r.content }}
-          {% if student_edit_enabled|default(0) %}
-            <a class="student-edit" href="/student_request_edit/{{ r.id }}">(신청내용 수정)</a>
-          {% endif %}
-        </td>
-        <!-- 상태/작성일은 JS가 채웁니다 -->
+        <td class="content-cell">{{ r.content }}</td>
+        <!-- 상태/버튼은 JS가 확정 -->
         <td></td>
         <td><a class="btn" href="/write_log/{{ r.id }}">작성</a></td>
       </tr>
@@ -108,16 +97,21 @@
         projectId: "advice-e7ca2",
       };
       if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
-      const db = firebase.firestore();
+      const db  = firebase.firestore();
       const COL = "counsel_records_v1";
 
       const table = document.getElementById('reqTable');
       const tbody = document.getElementById('reqTbody') || table.querySelector('tbody');
 
-      const FLAGS = document.getElementById('flags');
-      const ALLOW_FS_EDIT = (FLAGS?.dataset.fsEdit ?? '1') === '1';
+      // 담임 스코프(있으면 그 반만)
+      const SCOPE = document.getElementById('scope');
+      const FILTER_GRADE = SCOPE?.dataset.grade || null;
+      const FILTER_CLASS = SCOPE?.dataset.class || null;
+      const passScope = (g, c) => {
+        if (!FILTER_GRADE || !FILTER_CLASS) return true;
+        return String(g) === String(FILTER_GRADE) && String(c) === String(FILTER_CLASS);
+      };
 
-      // 유틸
       function parseDateToMs(txt){
         if(!txt) return 0;
         const t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ','T') : txt;
@@ -128,8 +122,6 @@
         }
         return 0;
       }
-      const pad = n => String(n).padStart(2,'0');
-      const toLocalInputValue = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
       function sortOnlyServer(){
         const rows=[...tbody.querySelectorAll('tr')].map(tr=>{
@@ -142,42 +134,51 @@
 
       async function loadAndMerge() {
         try {
-          // 1) 서버행 인덱스(신청ID → tr)
+          // 0) 서버 테이블에서 혹시 스코프 밖 행이 섞여 왔으면 제거(이중 안전장치)
+          if (FILTER_GRADE && FILTER_CLASS) {
+            [...tbody.querySelectorAll('tr')].forEach(tr=>{
+              const tds = tr.querySelectorAll('td');
+              const g = (tds[1]?.innerText||'').trim();
+              const c = (tds[2]?.innerText||'').trim();
+              if (!passScope(g, c)) tr.remove();
+            });
+          }
+
+          // 1) 서버행 인덱스(신청ID → tr)와 정렬용 배열
           const rowByRid = new Map();
+          const rows = [];
           const serverRows = Array.from(tbody.querySelectorAll('tr'));
           serverRows.forEach(tr=>{
             let rid = tr.querySelector('input[name="id"]')?.value || null;
             if (!rid) {
               const href = tr.querySelector('a.btn')?.getAttribute('href');
-              const m = href?.match(/\/write_log\/(\d+)/);
-              if (m) rid = m[1];
+              const m = href?.match(/\/write_log\/(\d+)/); if (m) rid = m[1];
             }
             if (rid) rowByRid.set(String(rid), tr);
-          });
 
-          // 정렬용 배열(초기엔 서버행/신청일로)
-          const rows = [];
-          serverRows.forEach(tr=>{
-            const td=tr.querySelector('td'); const inp=td?.querySelector('input[type=datetime-local]');
-            const txt=inp?.value || td?.innerText.trim() || '';
+            // 기본 정렬 키 = 신청일(서버)
+            const firstTd = tr.querySelector('td');
+            const inp = firstTd?.querySelector('input[type=datetime-local]');
+            const txt = inp?.value || firstTd?.innerText.trim() || '';
             tr.dataset.time = String(parseDateToMs(txt));
             rows.push({tr, time:+tr.dataset.time});
           });
 
-          // 2) Firestore 문서 로드 → 서버행을 덮어써 상태/버튼/작성일을 확정
+          // 2) Firestore 병합(스코프 필터 적용)
           const answered = new Set();
           const snap = await db.collection(COL).orderBy("dateISO","desc").get();
           snap.forEach(doc=>{
             const r = doc.data();
+            if (!passScope(r.grade, r.class_num)) return; // 담임 반 밖이면 스킵
+
             const rid = r.requestId || (doc.id?.startsWith('req_') ? doc.id.slice(4) : null);
-            const d = new Date(r.dateISO || r.updatedAt || Date.now());
-            const localLabel = isNaN(d) ? (r.dateISO || r.updatedAt || '') : d.toLocaleString('ko-KR');
-            const localInput = isNaN(d) ? '' : toLocalInputValue(d);
+            const d   = new Date(r.dateISO || r.updatedAt || Date.now());
             if (rid) answered.add(String(rid));
 
             let tr = rid ? rowByRid.get(String(rid)) : null;
             if (!tr) {
-              // 서버에 없는 건은 새 행 추가 (신청일 공란)
+              // 서버에 없는 건은 새 행 추가(신청일은 공란)
+              const href = rid ? `/write_log/${rid}` : '#';
               tr = document.createElement('tr');
               tr.innerHTML = `
                 <td></td>
@@ -187,33 +188,23 @@
                 <td>${r.name??''}</td>
                 <td>${r.topic??''}</td>
                 <td class="content-cell">${(r.memo??'').replace(/</g,"&lt;")}</td>
-                <td></td>
-                <td>${rid?`<a class="btn" href="/write_log/${rid}">수정</a>`:'<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'}</td>`;
+                <td><span class="status-dot status-done" title="작성됨"></span></td>
+                <td>${href==='#'
+                      ? '<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'
+                      : `<a class="btn" href="${href}">수정</a>`}</td>`;
               tbody.appendChild(tr);
-              rows.push({tr, time: d.getTime()||0});
+              rows.push({tr, time:d.getTime()||0});
+            } else {
+              // 상태/버튼만 확정
+              const tds = tr.querySelectorAll('td');
+              tds[7].innerHTML = `<span class="status-dot status-done" title="작성됨"></span>`;
+              tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">수정</a>`;
+              // 정렬 기준은 Firestore 작성일 우선
+              tr.dataset.time = String(d.getTime()||0);
             }
-
-            // 상태/작성일(교사) 셀 구성 + 버튼 '수정' 확정
-            const tds = tr.querySelectorAll('td');
-            const statusCell = tds[7];
-            statusCell.innerHTML = `
-              <div><span class="status-dot status-done" title="작성됨"></span></div>
-              <div class="fs-meta">
-                작성일: <span class="fs-date">${localLabel}</span>
-                ${ALLOW_FS_EDIT && rid ? `
-                  <form class="fs-date-form" data-rid="${rid}" style="display:inline-block;margin-left:6px">
-                    <input class="mini-input" type="datetime-local" name="fs_date" value="${localInput}" step="60" required>
-                    <button class="mini-btn" type="submit">저장</button>
-                  </form>` : ''}
-              </div>
-            `;
-            tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">수정</a>`;
-
-            // 정렬 기준을 작성일(교사)로 갱신
-            tr.dataset.time = String(d.getTime()||0);
           });
 
-          // 3) Firestore에 없는 서버행은 '미작성(노랑) + [작성]'으로 확정
+          // 3) Firestore 문서가 없는 서버행 = 미작성
           serverRows.forEach(tr=>{
             let rid = tr.querySelector('input[name="id"]')?.value || null;
             if (!rid) {
@@ -222,63 +213,26 @@
             }
             if (!rid || answered.has(String(rid))) return;
             const tds = tr.querySelectorAll('td');
-            tds[7].innerHTML = `
-              <div><span class="status-dot status-pending" title="미작성"></span></div>
-              <div class="fs-meta">작성일: -</div>
-            `;
+            tds[7].innerHTML = `<span class="status-dot status-pending" title="미작성"></span>`;
             tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">작성</a>`;
           });
 
-          // 4) 최신순 정렬(작성일 있으면 그것, 없으면 신청일)
+          // 4) 최신순 정렬
           rows.forEach(r=>{ if(!r.time && r.tr?.dataset?.time) r.time = +r.tr.dataset.time; });
           rows.sort((a,b)=>b.time-a.time);
           tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
 
-          // 5) 폼 이벤트 연결
-          attachServerDateSubmitFix();     // 신청일(서버) 폼 포맷 보정
-          if (ALLOW_FS_EDIT) attachFirestoreDateEditor(db); // 작성일(교사) 저장
+          // 5) 신청일(서버) 폼 제출 시 포맷 보정(T→공백)
+          document.querySelectorAll('.date-form').forEach(f=>{
+            f.addEventListener('submit', ()=>{
+              const inp=f.querySelector('input[name="date"]');
+              if (inp && inp.value.includes('T')) inp.value = inp.value.replace('T',' ');
+            });
+          });
         } catch (e) {
           console.warn('Firestore 통합 실패 → 서버 데이터만 정렬:', e);
           sortOnlyServer();
         }
-      }
-
-      // 신청일(서버) 폼: 서버가 "YYYY-MM-DD HH:MM"을 기대하면 T→공백으로 보정
-      function attachServerDateSubmitFix(){
-        const forms = document.querySelectorAll('.date-form');
-        forms.forEach(form=>{
-          form.addEventListener('submit', (e)=>{
-            const inp = form.querySelector('input[name="date"]');
-            if (inp && inp.value.includes('T')) {
-              inp.value = inp.value.replace('T',' ');
-            }
-          });
-        });
-      }
-
-      // 작성일(교사) 저장 → Firestore만 업데이트(서버 신청일엔 영향 없음)
-      function attachFirestoreDateEditor(db){
-        document.querySelectorAll('.fs-date-form').forEach(f=>{
-          f.addEventListener('submit', async (e)=>{
-            e.preventDefault();
-            const rid = f.dataset.rid;
-            const val = f.querySelector('input[name="fs_date"]').value; // "YYYY-MM-DDTHH:MM"
-            if (!rid || !val) return;
-            try{
-              await db.collection(COL).doc('req_'+rid).set({
-                dateISO: new Date(val).toISOString(),
-                updatedAt: new Date().toISOString()
-              }, { merge:true });
-              // 라벨 갱신
-              const label = f.closest('.fs-meta').querySelector('.fs-date');
-              const d = new Date(val);
-              label.textContent = isNaN(d) ? val : d.toLocaleString('ko-KR');
-            }catch(err){
-              alert('작성일 저장 중 오류가 발생했습니다.');
-              console.warn(err);
-            }
-          });
-        });
       }
 
       loadAndMerge();
