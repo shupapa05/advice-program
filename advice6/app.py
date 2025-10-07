@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import os, re, logging
 from zoneinfo import ZoneInfo
+from math import ceil
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -309,19 +310,24 @@ def consult_list():
     grade = session['grade']
     class_num = session['class_num']
 
-    filtered_requests = (ConsultRequest.query
-                         .filter_by(grade=grade, class_num=class_num)
-                         .order_by(ConsultRequest.date.desc())
-                         .all())
+    # ▶ 현재 페이지/페이지당 개수
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 8))
 
-    result = []
-    for r in filtered_requests:
+    # 담임 반 기준으로 필터
+    filtered = (ConsultRequest.query
+                .filter_by(grade=grade, class_num=class_num)
+                .order_by(ConsultRequest.date.desc())
+                .all())
+
+    rows = []
+    for r in filtered:
         log = ConsultLog.query.filter_by(request_id=r.id).first()
         checked = '✅' if log else '🟡'
         btn_label = '수정' if log else '작성'
-        is_parent = r.content.strip().startswith('[관계:')
+        is_parent = (r.content or '').strip().startswith('[관계:')
         applicant_type = '👨‍👩‍👧 학부모' if is_parent else '👦 학생'
-        result.append({
+        rows.append({
             'id': r.id,
             'date': r.date,
             'grade': r.grade,
@@ -333,21 +339,31 @@ def consult_list():
             'checked': checked,
             'btn_label': btn_label,
             'applicant_type': applicant_type,
-            'answer': log.memo if log else ''
+            'has_log': bool(log),
         })
 
-    # 🔴 프런트 JS(Firestore 병합)가 사용할 스코프를 함께 전달
+    # 페이지네이션
+    total = len(rows)
+    page_count = max(1, ceil(total / per_page))
+    page = max(1, min(page, page_count))  # 경계 보정
+    start = (page - 1) * per_page
+    page_rows = rows[start:start + per_page]
+
     return render_template(
         'consult_list.html',
-        requests=result,
+        requests=page_rows,
+        page=page,
+        page_count=page_count,
+        per_page=per_page,
         edit_date_enabled=EDIT_DATE_ENABLED,
         filter_grade=grade,
-        filter_class=class_num
+        filter_class=class_num,
     )
 
 # === 상담일지 작성/수정 ===
 FEATURE_LOG_DATE_EDIT = EDIT_LOG_DATE_ENABLED
 
+# ===== write_log: 작성/수정 후 보던 페이지로 복귀 =====
 @app.route('/write_log/<int:req_id>', methods=['GET', 'POST'])
 def write_log(req_id):
     if 'teacher_id' not in session:
@@ -355,17 +371,19 @@ def write_log(req_id):
 
     request_data = ConsultRequest.query.get_or_404(req_id)
 
-    # 🔒 권한: 담임 반만 접근
+    # 권한 체크(담임 반)
     if not (request_data.grade == session.get('grade') and
             request_data.class_num == session.get('class_num')):
         flash('이 반에 대한 권한이 없습니다.')
         return redirect(url_for('consult_list'))
 
+    back_page = request.args.get('page') or request.form.get('page') or '1'
+
     log = ConsultLog.query.filter_by(request_id=req_id).first()
 
     if request.method == 'POST':
-        memo = request.form.get('memo', '').strip()
-        apply_dt = request.form.get('apply_dt') == 'on'  # 체크됐을 때만 날짜 반영
+        memo = (request.form.get('memo') or '').strip()
+        apply_dt = request.form.get('apply_dt') == 'on'
         new_date_str = _from_input_value(request.form.get('log_dt')) if apply_dt else None
 
         if log:
@@ -373,28 +391,26 @@ def write_log(req_id):
             if new_date_str:
                 log.date = new_date_str
         else:
-            log = ConsultLog(
+            db.session.add(ConsultLog(
                 request_id=req_id,
                 teacher_name=session.get('teacher_username'),
                 memo=memo,
                 date=new_date_str or now_kst_str()
-            )
-            db.session.add(log)
-
+            ))
         db.session.commit()
-        return redirect('/consult_list')
+        return redirect(url_for('consult_list', page=back_page))
 
-    # GET
-    show_dt_edit = FEATURE_LOG_DATE_EDIT or (request.args.get('edit_dt') == '1')
+    show_dt_edit = EDIT_LOG_DATE_ENABLED or (request.args.get('edit_dt') == '1')
     default_dt_input = _to_input_value(log.date if log else None)
+
     return render_template(
         'write_log.html',
         request_data=request_data,
         log=log,
         default_dt_input=default_dt_input,
-        show_dt_edit=show_dt_edit
+        show_dt_edit=show_dt_edit,
+        back_page=back_page,
     )
-
 # === 통계 ===
 @app.route('/statistics')
 def statistics():
@@ -642,27 +658,30 @@ def update_consult_date():
     if 'teacher_id' not in session:
         return redirect('/teacher_login')
 
+    back_page = request.form.get('page', '1')
+
     try:
-        cid = int(request.form.get('id', '').strip())
-    except (TypeError, ValueError):
+        cid = int((request.form.get('id') or '').strip())
+    except Exception:
         flash('잘못된 요청입니다.')
-        return redirect(url_for('consult_list'))
+        return redirect(url_for('consult_list', page=back_page))
 
     rec = ConsultRequest.query.get(cid)
     if not rec:
         flash('기록을 찾을 수 없습니다.')
-        return redirect(url_for('consult_list'))
+        return redirect(url_for('consult_list', page=back_page))
 
-    # 🔒 본인 반만 수정 가능
+    # 권한(담임 반)
     if not (rec.grade == session.get('grade') and rec.class_num == session.get('class_num')):
         flash('이 반에 대한 권한이 없습니다.')
-        return redirect(url_for('consult_list'))
+        return redirect(url_for('consult_list', page=back_page))
 
     raw = (request.form.get('date') or '').strip()
     if not raw:
         flash('날짜가 비었습니다.')
-        return redirect(url_for('consult_list'))
+        return redirect(url_for('consult_list', page=back_page))
 
+    # 여러 포맷 허용
     candidates = [raw, raw.replace('T', ' '), raw.replace('/', '-')]
     dt = None
     for s in candidates:
@@ -679,12 +698,8 @@ def update_consult_date():
         m = re.search(r'(\d{4})\D?(\d{1,2})\D?(\d{1,2})\D+(\d{1,2})\D?(\d{1,2})', raw)
         if m:
             y, mo, d, h, mi = map(int, m.groups())
-            mo = max(1, min(12, mo))
-            d = max(1, min(31, d))
-            h = max(0, min(23, h))
-            mi = max(0, min(59, mi))
-            dt = datetime(y, mo, d, h, mi)
-            flash('입력 형식을 자동으로 보정했어요.')
+            dt = datetime(max(1, y), max(1, min(12, mo)), max(1, min(31, d)), max(0, min(23, h)), max(0, min(59, mi)))
+            flash('입력 형식을 자동으로 보정했습니다.')
         else:
             flash('날짜를 인식할 수 없어 현재 시각으로 저장했습니다.')
             dt = datetime.now(KST)
@@ -692,7 +707,7 @@ def update_consult_date():
     rec.date = dt.strftime('%Y-%m-%d %H:%M')
     db.session.commit()
     flash('상담 신청일을 수정했습니다.')
-    return redirect(url_for('consult_list'))
+    return redirect(url_for('consult_list', page=back_page))
 
 # 500 핸들러
 @app.errorhandler(500)
