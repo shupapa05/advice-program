@@ -1,43 +1,27 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>상담 신청 내역</title>
   <style>
-    body {
-      font-family: 'Nanum Gothic', sans-serif;
-      max-width: 1000px;
-      margin: 60px auto;
-      padding: 20px;
-      background-color: #f8f9fa;
-    }
-    h2 { text-align: center; margin-bottom: 18px; }
-    .msg { text-align:center; margin:10px 0 22px; color:#0b7285; font-weight:600; }
-    table { width: 100%; border-collapse: collapse; background-color: white; }
-    th, td { padding: 10px; border: 1px solid #ddd; text-align: center; }
-    th { background-color: #7ed6df; color: white; }
-    tr:nth-child(even) { background-color: #f2f2f2; }
-    .btn {
-      padding: 6px 14px; background-color: #22a6b3; color: white;
-      border: none; border-radius: 6px; text-decoration: none; display:inline-block;
-    }
-    .btn:hover { background-color: #1e90a1; }
-    .date-form { display:flex; gap:6px; align-items:center; justify-content:center; }
-    .date-input {
-      width: 150px; padding:6px 8px; border:1px solid #ccc; border-radius:6px;
-      font-family: inherit; font-size: 14px;
-    }
-    .date-submit {
-      padding: 6px 10px; border:none; border-radius:6px; background:#6c5ce7; color:#fff; cursor:pointer;
-    }
-    .date-submit:hover { background:#5a4bd6; }
-    .sub { color:#666; font-size:12px; margin-top:4px; }
+    body{font-family:'Nanum Gothic',sans-serif;max-width:1000px;margin:60px auto;padding:20px;background:#f8f9fa}
+    h2{text-align:center;margin-bottom:18px}
+    .msg{text-align:center;margin:10px 0 22px;color:#0b7285;font-weight:600}
+    table{width:100%;border-collapse:collapse;background:#fff}
+    th,td{padding:10px;border:1px solid #ddd;text-align:center}
+    th{background:#7ed6df;color:#fff}
+    tr:nth-child(even){background:#f2f2f2}
+    .btn{padding:6px 14px;background:#22a6b3;color:#fff;border:none;border-radius:6px;text-decoration:none;display:inline-block}
+    .btn:hover{background:#1e90a1}
+    .date-form{display:flex;gap:6px;align-items:center;justify-content:center}
+    .date-input{width:150px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
+    .date-submit{padding:6px 10px;border:none;border-radius:6px;background:#6c5ce7;color:#fff;cursor:pointer}
+    .date-submit:hover{background:#5a4bd6}
   </style>
 </head>
 <body>
   <h2>📂 상담 신청 내역</h2>
 
-  <!-- flash 메시지 표시 -->
   {% with messages = get_flashed_messages() %}
     {% if messages %}
       <div class="msg">
@@ -46,39 +30,28 @@
     {% endif %}
   {% endwith %}
 
-  <table>
+  <table id="reqTable">
     <thead>
       <tr>
         <th>{{ '신청일(수정)' if edit_date_enabled else '신청일' }}</th>
-        <th>학년</th>
-        <th>반</th>
-        <th>번호</th>
-        <th>이름</th>
-        <th>주제</th>
-        <th>내용</th>
-        <th>상태</th>
-        <th>작성</th>
+        <th>학년</th><th>반</th><th>번호</th><th>이름</th>
+        <th>주제</th><th>내용</th><th>상태</th><th>작성</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="reqTbody">
       {% for r in requests %}
       <tr>
-        <!-- 날짜 수정 폼 -->
-       <td>
-  {% if edit_date_enabled %}
-    <form class="date-form" action="/teacher/update_date" method="post">
-      <input type="hidden" name="id" value="{{ r.id }}">
-      <input class="date-input" type="datetime-local" name="date"
-             value="{{ r.date|replace(' ', 'T') }}" step="60" required>
-      <button class="date-submit" type="submit">수정</button>
-    </form>
-    <!-- 필요하면 안내문 유지 -->
-    <!-- <div class="sub">형식: YYYY-MM-DD HH:MM</div> -->
-  {% else %}
-    {{ r.date }}
-  {% endif %}
-</td>
-
+        <td>
+          {% if edit_date_enabled %}
+          <form class="date-form" action="/teacher/update_date" method="post">
+            <input type="hidden" name="id" value="{{ r.id }}" />
+            <input class="date-input" type="datetime-local" name="date" value="{{ r.date|replace(' ', 'T') }}" step="60" required />
+            <button class="date-submit" type="submit">수정</button>
+          </form>
+          {% else %}
+            {{ r.date }}
+          {% endif %}
+        </td>
         <td>{{ r.grade }}</td>
         <td>{{ r.class_num }}</td>
         <td>{{ r.number }}</td>
@@ -86,14 +59,91 @@
         <td>{{ r.topic }}</td>
         <td style="text-align:left">{{ r.content }}</td>
         <td>{{ r.checked }}</td>
-        <td><a class="btn" href="/write_log/{{ r.id }}">{{ r.btn_label }}</a></td>
+        <td><a class="btn" href="/write_log/{{ r.id }}">작성</a></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 
-  <div style="text-align: center; margin-top: 24px;">
+  <div style="text-align:center;margin-top:24px">
     <a href="/teacher_home" class="btn">🏠 교사 홈으로 돌아가기</a>
   </div>
+
+  <!-- 항상 Firestore를 불러와서 서버 데이터와 합쳐 최신순 정렬 -->
+  <script>
+    // Firebase SDK 로드 (실패해도 페이지는 동작하도록)
+    (function loadFirebase() {
+      var a=document.createElement('script'); a.src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js";
+      var b=document.createElement('script'); b.src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js";
+      b.onload=init; document.body.append(a,b);
+      b.onerror=sortOnlyServer; // 네트워크 차단 등으로 Firestore 못 쓸 때: 서버 데이터만 정렬
+    })();
+
+    // 문자열 날짜 → ms
+    function parseDateToMs(txt){
+      if(!txt) return 0;
+      var t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ','T') : txt;
+      var d = new Date(t); if(!isNaN(d)) return d.getTime();
+      var m = txt.match(/(\d{4}).?(\d{1,2}).?(\d{1,2}).*?(\d{1,2})?:?(\d{1,2})?/);
+      if(m){var Y=m[1],M=m[2],D=m[3],h=m[4]||'0',n=m[5]||'0';
+        return new Date(`${Y.padStart(4,'0')}-${String(M).padStart(2,'0')}-${String(D).padStart(2,'0')}T${String(h).padStart(2,'0')}:${String(n).padStart(2,'0')}:00`).getTime();
+      }
+      return 0;
+    }
+
+    function sortOnlyServer(){
+      var tbody=document.getElementById('reqTbody'); if(!tbody) return;
+      var rows=[...tbody.querySelectorAll('tr')].map(tr=>({tr,time:parseDateToMs(tr.querySelector('td')?.innerText.trim()||'')}));
+      rows.sort((a,b)=>b.time-a.time); tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
+    }
+
+    async function init(){
+      try{
+        const firebaseConfig = {
+          apiKey: "AIzaSyBddJ-lxmjhIfYe-YR77wZrKRm6V5DeyE",
+          authDomain: "advice-e7ca2.firebaseapp.com",
+          projectId: "advice-e7ca2",
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const COL = "counsel_records_v1";
+
+        var table=document.getElementById('reqTable');
+        var tbody=document.getElementById('reqTbody')||table.querySelector('tbody');
+
+        // 1) 서버 행 수집
+        var rows=[...tbody.querySelectorAll('tr')].map(tr=>{
+          return { tr, time: parseDateToMs(tr.querySelector('td')?.innerText.trim()||'') };
+        });
+
+        // 2) Firestore 데이터
+        const snap = await db.collection(COL).orderBy("dateISO","desc").get();
+        snap.forEach(doc=>{
+          const r=doc.data();
+          const d=new Date(r.dateISO||r.updatedAt||Date.now());
+          const dateStr = isNaN(d)?(r.dateISO||r.updatedAt||''): d.toLocaleString();
+          const tr=document.createElement('tr');
+          tr.innerHTML = `
+            <td>${dateStr}</td>
+            <td>${r.grade??''}</td>
+            <td>${r.class_num??''}</td>
+            <td>${r.number??''}</td>
+            <td>${r.name??''}</td>
+            <td>${r.topic??''}</td>
+            <td style="text-align:left">${(r.memo??'').replace(/</g,"&lt;")}</td>
+            <td>완료</td>
+            <td><a class="btn" href="#">Firestore</a></td>`;
+          rows.push({ tr, time: d.getTime()||0 });
+        });
+
+        // 3) 전체 최신순 정렬
+        rows.sort((a,b)=>b.time-a.time);
+        tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
+      }catch(e){
+        console.warn('Firestore 통합 실패, 서버 데이터만 정렬합니다:', e);
+        sortOnlyServer();
+      }
+    }
+  </script>
 </body>
 </html>
