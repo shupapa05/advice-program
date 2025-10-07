@@ -4,27 +4,42 @@
   <meta charset="UTF-8" />
   <title>상담 신청 내역</title>
   <style>
-    body{font-family:'Nanum Gothic',sans-serif;max-width:1000px;margin:60px auto;padding:20px;background:#f8f9fa}
-    h2{text-align:center;margin-bottom:18px}
+    :root{
+      --teal:#22a6b3; --teal-dark:#1e90a1;
+      --head:#7ed6df; --bg:#f8f9fa; --dot-pending:#fbbf24; --dot-done:#10b981;
+    }
+    body{font-family:'Nanum Gothic',sans-serif;max-width:1200px;margin:50px auto;padding:20px;background:var(--bg)}
+    h2{display:flex;justify-content:space-between;align-items:center;margin:0 0 18px}
+    .right a.btn{margin-left:8px}
     .msg{text-align:center;margin:10px 0 22px;color:#0b7285;font-weight:600}
     table{width:100%;border-collapse:collapse;background:#fff}
     th,td{padding:10px;border:1px solid #ddd;text-align:center;vertical-align:middle}
-    th{background:#7ed6df;color:#fff}
-    tr:nth-child(even){background:#f2f2f2}
-    .btn{padding:6px 14px;background:#22a6b3;color:#fff;border:none;border-radius:6px;text-decoration:none;display:inline-block}
-    .btn:hover{background:#1e90a1}
+    th{background:var(--head);color:#fff}
+    tr:nth-child(even){background:#f7f9fb}
+    td.txt-left{text-align:left}
+    .btn{padding:6px 14px;background:var(--teal);color:#fff;border:none;border-radius:6px;text-decoration:none;display:inline-block;cursor:pointer}
+    .btn:hover{background:var(--teal-dark)}
     .date-form{display:flex;gap:6px;align-items:center;justify-content:center}
-    .date-input{width:150px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
+    .date-input{width:160px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
     .date-submit{padding:6px 10px;border:none;border-radius:6px;background:#6c5ce7;color:#fff;cursor:pointer}
     .date-submit:hover{background:#5a4bd6}
-    .status-dot{display:inline-block;width:12px;height:12px;border-radius:999px;vertical-align:middle}
-    .status-pending{background:#f5a524} /* 노랑: 미작성 */
-    .status-done{background:#10b981}    /* 초록: 작성됨 */
-    .content-cell{ text-align:left }
+    .status-dot{display:inline-block;width:12px;height:12px;border-radius:50%}
+    .pending{background:var(--dot-pending)}
+    .done{background:var(--dot-done)}
+    /* pagination */
+    .pagi{display:flex;justify-content:center;gap:6px;margin:16px 0}
+    .pagi button{min-width:34px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer}
+    .pagi button.active{background:#111827;color:#fff;border-color:#111827}
+    .pagi button[disabled]{opacity:.5;cursor:not-allowed}
   </style>
 </head>
 <body>
-  <h2>📂 상담 신청 내역</h2>
+  <h2>
+    <span>📂 상담 신청 내역</span>
+    <span class="right">
+      <a href="/teacher_home" class="btn">🏠 교사 홈</a>
+    </span>
+  </h2>
 
   {% with messages = get_flashed_messages() %}
     {% if messages %}
@@ -34,33 +49,31 @@
     {% endif %}
   {% endwith %}
 
-  <!-- 서버에서 내려주는 스코프(담임용 반 필터). 상담/관리자는 빈 값 -->
-  <div id="scope"
-       data-grade="{{ filter_grade if filter_grade is not none else '' }}"
-       data-class="{{ filter_class if filter_class is not none else '' }}"></div>
-
   <table id="reqTable">
     <thead>
       <tr>
-        <!-- ① 신청일(서버 DB) -->
         <th>{{ '신청일(수정)' if edit_date_enabled else '신청일' }}</th>
         <th>학년</th><th>반</th><th>번호</th><th>이름</th>
-        <th>주제</th>
-        <th>내용</th>
-        <!-- ② 상태만(색 점) -->
-        <th>상태</th>
-        <th>작성</th>
+        <th>주제</th><th>내용</th>
+        <th style="width:70px">상태</th>
+        <th style="width:90px">작성</th>
       </tr>
     </thead>
     <tbody id="reqTbody">
       {% for r in requests %}
-      <tr>
+      <tr class="data-row"
+          data-grade="{{ r.grade }}"
+          data-class="{{ r.class_num }}"
+          data-number="{{ r.number }}"
+          data-name="{{ r.name|e }}"
+          data-topic="{{ r.topic|e }}"
+          data-haslog="{{ 1 if r.btn_label=='수정' else 0 }}">
         <td>
           {% if edit_date_enabled %}
-          <!-- 신청일 수정: 서버 DB만 업데이트 -->
           <form class="date-form" action="/teacher/update_date" method="post">
             <input type="hidden" name="id" value="{{ r.id }}" />
-            <input class="date-input" type="datetime-local" name="date" value="{{ r.date|replace(' ', 'T') }}" step="60" required />
+            <input class="date-input" type="datetime-local" name="date"
+                   value="{{ r.date|replace(' ', 'T') }}" step="60" required />
             <button class="date-submit" type="submit">수정</button>
           </form>
           {% else %}
@@ -72,188 +85,72 @@
         <td>{{ r.number }}</td>
         <td>{{ r.name }}</td>
         <td>{{ r.topic }}</td>
-        <td class="content-cell">{{ r.content }}</td>
-        <!-- 상태/버튼은 JS가 확정 -->
-        <td></td>
-        <td><a class="btn" href="/write_log/{{ r.id }}">작성</a></td>
+        <td class="txt-left">{{ r.content }}</td>
+
+        <!-- 상태: 점만 표시 (서버에서 기본 판정) -->
+        <td>
+          {% if r.btn_label == '수정' %}
+            <span class="status-dot done" title="작성됨"></span>
+          {% else %}
+            <span class="status-dot pending" title="미작성"></span>
+          {% endif %}
+        </td>
+
+        <!-- 버튼: 서버 판정 값 사용 -->
+        <td>
+          <a class="btn" href="/write_log/{{ r.id }}">{{ r.btn_label }}</a>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 
-  <div style="text-align:center;margin-top:24px">
-    <a href="/teacher_home" class="btn">🏠 교사 홈으로 돌아가기</a>
-  </div>
+  <!-- 페이지네이션 -->
+  <div class="pagi" id="pagi"></div>
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+  <script>
+    // ====== 간단 페이지네이션 (8행씩) ======
+    (function(){
+      const ROWS_PER_PAGE = 8;
+      const tbody = document.getElementById('reqTbody');
+      const rows = Array.from(tbody.querySelectorAll('tr.data-row'));
+      const total = rows.length;
+      const pages = Math.max(1, Math.ceil(total / ROWS_PER_PAGE));
+      let cur = 1;
 
- <script>
-  (function () {
-    // --- Firebase ---
-    const firebaseConfig = {
-      apiKey: "AIzaSyBddJ-lxmjhIfYe-YR77wZrKRm6V5DeyE",
-      authDomain: "advice-e7ca2.firebaseapp.com",
-      projectId: "advice-e7ca2",
-    };
-    if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
-    const db  = firebase.firestore();
-    const COL = "counsel_records_v1";
+      const pagi = document.getElementById('pagi');
+      function renderPagi(){
+        pagi.innerHTML = '';
+        const prev = document.createElement('button');
+        prev.textContent = '‹';
+        prev.disabled = (cur===1);
+        prev.onclick = ()=>{cur=Math.max(1,cur-1); render();};
+        pagi.appendChild(prev);
 
-    const table = document.getElementById('reqTable');
-    const tbody = document.getElementById('reqTbody') || table.querySelector('tbody');
-
-    // --- 담임 스코프(있으면 그 반만) ---
-    const SCOPE = document.getElementById('scope');
-    const FILTER_GRADE = SCOPE?.dataset.grade || null;
-    const FILTER_CLASS = SCOPE?.dataset.class || null;
-
-    // 값 정규화/비교(숫자/문자 모두 대응)
-    const norm = v => String(v ?? "").trim().replace(/\s+/g,"");
-    const same = (a,b) => {
-      const na = parseInt(a,10), nb = parseInt(b,10);
-      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na===nb;
-      return norm(a)===norm(b);
-    };
-    const passScope = (g, c) => {
-      if (!FILTER_GRADE || !FILTER_CLASS) return true;  // 상담/관리자는 전체
-      return same(g, FILTER_GRADE) && same(c, FILTER_CLASS);
-    };
-
-    // 날짜 파싱
-    function parseDateToMs(txt){
-      if(!txt) return 0;
-      const t = (txt.includes(' ') && !txt.includes('T')) ? txt.replace(' ','T') : txt;
-      const d = new Date(t); if(!isNaN(d)) return d.getTime();
-      const m = txt.match(/(\d{4})[^\d]?(\d{1,2})[^\d]?(\d{1,2}).*?(\d{1,2})?:?(\d{1,2})?/);
-      if(m){ const [_,Y,M,D,h='0',n='0']=m;
-        return new Date(`${Y.padStart(4,'0')}-${String(M).padStart(2,'0')}-${String(D).padStart(2,'0')}T${String(h).padStart(2,'0')}:${String(n).padStart(2,'0')}:00`).getTime();
-      }
-      return 0;
-    }
-    function sortOnlyServer(){
-      const rows=[...tbody.querySelectorAll('tr')].map(tr=>{
-        const td=tr.querySelector('td'); const inp=td?.querySelector('input[type=datetime-local]');
-        const txt=inp?.value || td?.innerText.trim() || '';
-        return {tr,time:parseDateToMs(txt)};
-      });
-      rows.sort((a,b)=>b.time-a.time); tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
-    }
-
-    async function loadAndMerge() {
-      try {
-        // (A) 서버 테이블에서 스코프 밖 행 제거(혹시 섞여 왔을 때 대비)
-        if (FILTER_GRADE && FILTER_CLASS) {
-          [...tbody.querySelectorAll('tr')].forEach(tr=>{
-            const tds = tr.querySelectorAll('td');
-            const g = (tds[1]?.innerText||'').trim();
-            const c = (tds[2]?.innerText||'').trim();
-            if (!passScope(g, c)) tr.remove();
-          });
+        for(let i=1;i<=pages;i++){
+          const b=document.createElement('button');
+          b.textContent=i;
+          if(i===cur) b.classList.add('active');
+          b.onclick=()=>{cur=i; render();};
+          pagi.appendChild(b);
         }
 
-        // (B) 서버행 인덱싱 + 정렬용 배열
-        const rowByRid = new Map();
-        const rows = [];
-        const serverRows = Array.from(tbody.querySelectorAll('tr'));
-        serverRows.forEach(tr=>{
-          let rid = tr.querySelector('input[name="id"]')?.value || null;
-          if (!rid) {
-            const href = tr.querySelector('a.btn')?.getAttribute('href');
-            const m = href?.match(/\/write_log\/(\d+)/); if (m) rid = m[1];
-          }
-          if (rid) rowByRid.set(String(rid), tr);
-
-          const firstTd = tr.querySelector('td');
-          const inp = firstTd?.querySelector('input[type=datetime-local]');
-          const txt = inp?.value || firstTd?.innerText.trim() || '';
-          tr.dataset.time = String(parseDateToMs(txt));
-          rows.push({tr, time:+tr.dataset.time});
-        });
-
-        // (C) Firestore 쿼리도 스코프 필터 적용 (타입 불일치 대비)
-        let q = db.collection(COL);
-        if (FILTER_GRADE && FILTER_CLASS) {
-          const gNum = parseInt(FILTER_GRADE,10);
-          const cNum = parseInt(FILTER_CLASS,10);
-          const gVal = Number.isNaN(gNum) ? FILTER_GRADE : gNum;
-          const cVal = Number.isNaN(cNum) ? FILTER_CLASS : cNum;
-          q = q.where('grade','==', gVal).where('class_num','==', cVal);
-        }
-        q = q.orderBy('dateISO','desc');
-
-        const answered = new Set();
-        const snap = await q.get();
-
-        // (D) 병합
-        snap.forEach(doc=>{
-          const r = doc.data();
-          // 혹시 타입 불일치로 where가 못 걸렸을 상황 대비, 한 번 더 체크
-          if (!passScope(r.grade, r.class_num)) return;
-
-          const rid = r.requestId || (doc.id?.startsWith('req_') ? doc.id.slice(4) : null);
-          const d   = new Date(r.dateISO || r.updatedAt || Date.now());
-          if (rid) answered.add(String(rid));
-
-          let tr = rid ? rowByRid.get(String(rid)) : null;
-          if (!tr) {
-            const href = rid ? `/write_log/${rid}` : '#';
-            tr = document.createElement('tr');
-            tr.innerHTML = `
-              <td></td>
-              <td>${r.grade??''}</td>
-              <td>${r.class_num??''}</td>
-              <td>${r.number??''}</td>
-              <td>${r.name??''}</td>
-              <td>${r.topic??''}</td>
-              <td style="text-align:left">${(r.memo??'').replace(/</g,"&lt;")}</td>
-              <td><span class="status-dot status-done" title="작성됨"></span></td>
-              <td>${href==='#'
-                    ? '<span class="btn" style="opacity:.6;pointer-events:none">작성(연결없음)</span>'
-                    : `<a class="btn" href="${href}">수정</a>`}</td>`;
-            tbody.appendChild(tr);
-            rows.push({tr, time:d.getTime()||0});
-          } else {
-            const tds = tr.querySelectorAll('td');
-            tds[7].innerHTML = `<span class="status-dot status-done" title="작성됨"></span>`;
-            tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">수정</a>`;
-            tr.dataset.time = String(d.getTime()||0); // 작성일 기준 정렬
-          }
-        });
-
-        // (E) 미작성 행(= Firestore 문서 없음)
-        serverRows.forEach(tr=>{
-          let rid = tr.querySelector('input[name="id"]')?.value || null;
-          if (!rid) {
-            const href = tr.querySelector('a.btn')?.getAttribute('href');
-            const m = href?.match(/\/write_log\/(\d+)/); if (m) rid = m[1];
-          }
-          if (!rid || answered.has(String(rid))) return;
-          const tds = tr.querySelectorAll('td');
-          tds[7].innerHTML = `<span class="status-dot status-pending" title="미작성"></span>`;
-          tds[8].innerHTML = `<a class="btn" href="/write_log/${rid}">작성</a>`;
-        });
-
-        // (F) 최신순 정렬
-        rows.forEach(r=>{ if(!r.time && r.tr?.dataset?.time) r.time = +r.tr.dataset.time; });
-        rows.sort((a,b)=>b.time-a.time);
-        tbody.innerHTML=''; rows.forEach(r=>tbody.appendChild(r.tr));
-
-        // (G) 신청일(서버) 폼 제출 시 포맷 보정(T→공백)
-        document.querySelectorAll('.date-form').forEach(f=>{
-          f.addEventListener('submit', ()=>{
-            const inp=f.querySelector('input[name="date"]');
-            if (inp && inp.value.includes('T')) inp.value = inp.value.replace('T',' ');
-          });
-        });
-      } catch (e) {
-        console.warn('Firestore 통합 실패 → 서버 데이터만 정렬:', e);
-        sortOnlyServer();
+        const next = document.createElement('button');
+        next.textContent = '›';
+        next.disabled = (cur===pages);
+        next.onclick = ()=>{cur=Math.min(pages,cur+1); render();};
+        pagi.appendChild(next);
       }
+
+      function render(){
+        rows.forEach((tr,idx)=>{
+          const page = Math.floor(idx/ROWS_PER_PAGE)+1;
+          tr.style.display = (page===cur)?'':'none';
+        });
+        renderPagi();
+      }
+      render();
     })();
-</script>
-
+  </script>
 </body>
 </html>
-
