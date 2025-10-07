@@ -112,9 +112,9 @@
       document.body.append(s1, s2);
 
       function initFirestore() {
-        // ⬇️ 여기에 네 Firebase 설정값을 입력
+        // ⬇️ Firebase 설정값 (콘솔 값과 정확히 일치해야 함)
         const firebaseConfig = {
-          apiKey: "AIzaSyBddJ-1xmjmHtYE-YR77twRXEKm6V5DeyE",
+          apiKey: "AIzaSyBddJ-lxmjhIfYe-YR77wZrKRm6V5DeyE",
           authDomain: "advice-e7ca2.firebaseapp.com",
           projectId: "advice-e7ca2",
         };
@@ -147,55 +147,59 @@
           alert('불러오기 완료');
         });
 
-        // 폼 제출을 가로채 Firestore에 저장
+        // 🔁 폼 제출을 가로채 Firestore에 "고정 id"로 저장한 뒤, 서버에도 그대로 제출
         const form = document.getElementById('logForm');
         form.addEventListener('submit', async (ev) => {
           ev.preventDefault();
 
-          // 템플릿에서 보이는 값 읽기
-          const sInfo = document.getElementById('req_student').innerText.trim(); // "3학년 2반 10번 홍길동"
-          const category = document.getElementById('req_category').innerText.trim();
-          const topic = document.getElementById('req_topic').innerText.trim();
-          const reqContent = document.getElementById('req_content').innerText.trim();
-          const memo = document.getElementById('memo').value.trim();
-
-          // 학생 기본키 파싱(대충 맞춰도 OK; 발표용)
-          const m = sInfo.match(/(\d+)학년\s+(\d+)반\s+(\d+)번\s+(.+)/);
-          const [ , grade, class_num, number, name ] = m || [null,'','','',sInfo];
-
-          // 날짜 결정
-          const nowIso = new Date().toISOString();
-          const dtInputEl = document.getElementById('log_dt');
-          const apply = document.getElementById('apply_dt')?.checked;
-          const dateISO = (apply && dtInputEl?.value) ? new Date(dtInputEl.value).toISOString() : nowIso;
-
-          // 문서 id (학생+주제+시간 조합)
-          const id = crypto.randomUUID();
-
-          const data = {
-            id,
-            grade, class_num, number, name,
-            category, topic,
-            requestContent: reqContent,
-            memo,
-            dateISO,
-            updatedAt: nowIso
-          };
-
           try {
-            await db.collection(COL).doc(id).set(data, { merge: true });
-            alert('Firestore에 저장되었습니다. (여러 태블릿에서 공유됨)');
-            // 저장 후 목록으로 이동(서버 라우팅 유지)
-            location.href = '/consult_list';
+            // 0) 서버 요청 id → /write_log/<id> 에서 추출 (없으면 null)
+            const reqId = (location.pathname.match(/\/write_log\/(\d+)/) || [])[1] || null;
+            // Firestore 문서 고정 id: 같은 건은 항상 같은 문서로 덮어쓰기
+            const docId = reqId ? `req_${reqId}` : (self.crypto?.randomUUID?.() ?? String(Date.now()));
+
+            // 1) 템플릿에서 보이는 값 읽기
+            const sInfo = document.getElementById('req_student').innerText.trim(); // "3학년 2반 10번 홍길동"
+            const category = document.getElementById('req_category').innerText.trim();
+            const topic = document.getElementById('req_topic').innerText.trim();
+            const reqContent = document.getElementById('req_content').innerText.trim();
+            const memo = document.getElementById('memo').value.trim();
+
+            // 2) 학생 정보 파싱(발표/운영에 충분)
+            const m = sInfo.match(/(\d+)학년\s+(\d+)반\s+(\d+)번\s+(.+)/);
+            const [ , grade, class_num, number, name ] = m || [null,'','','',sInfo];
+
+            // 3) 날짜 결정
+            const nowIso = new Date().toISOString();
+            const dtInputEl = document.getElementById('log_dt');
+            const apply = document.getElementById('apply_dt')?.checked;
+            const dateISO = (apply && dtInputEl?.value) ? new Date(dtInputEl.value).toISOString() : nowIso;
+
+            // 4) 저장 payload
+            const data = {
+              id: docId,
+              requestId: reqId,            // 서버 요청 id와 연결
+              grade, class_num, number, name,
+              category, topic,
+              requestContent: reqContent,
+              memo,
+              dateISO,
+              updatedAt: nowIso
+            };
+
+            // 5) Firestore upsert (동일 문서 덮어쓰기)
+            await db.collection(COL).doc(docId).set(data, { merge: true });
+
           } catch (e) {
-            console.error(e);
-            alert('저장 중 오류가 발생했습니다.');
+            console.warn('Firestore 저장 단계에서 오류:', e);
+            // Firestore가 실패해도 서버 저장은 계속 진행
+          } finally {
+            // ✅ 서버에도 그대로 저장(원래 동작 유지)
+            form.submit();
           }
-        }, { once:false });
+        });
       }
     })();
   </script>
 </body>
 </html>
-
-
