@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>상담신청 요약</title>
+  <style>
+    body{font-family:'Nanum Gothic',sans-serif;max-width:1100px;margin:60px auto;padding:20px;background:#f7f7fb}
+    h2{text-align:center;margin-bottom:18px}
+    .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+    .btn{padding:6px 14px;background:#22a6b3;color:#fff;border:none;border-radius:6px;text-decoration:none;display:inline-block}
+    .btn:hover{background:#1e90a1}
+    .btn-tab{padding:6px 10px;border-radius:6px;text-decoration:none;border:1px solid #22a6b3}
+    .btn-on{background:#22a6b3;color:#fff}
+    .btn-off{background:#fff;color:#22a6b3}
+    .card{background:#fff;border:1px solid #ddd;border-radius:10px;margin:10px 0}
+    .card-h{padding:10px 14px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+    .card-b{padding:0}
+    .list{list-style:none;margin:0;padding:0}
+    .item{display:flex;justify-content:space-between;padding:10px 14px;border-top:1px solid #f1f3f5}
+    .item:first-child{border-top:none}
+    .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;margin-left:6px;background:#f1f3f5}
+    .filters{display:flex;gap:10px;align-items:end;margin:10px 0 14px}
+    .field{display:flex;flex-direction:column;gap:6px}
+    .input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:inherit}
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <h2>📊 상담신청 요약</h2>
+    <div>
+      <a href="/teacher_home" class="btn">🏠 교사 홈</a>
+      <a href="/consult_list" class="btn" style="margin-left:6px;">📂 원본 목록</a>
+    </div>
+  </div>
+
+  <!-- 보기 토글 -->
+  <div style="margin:8px 0 14px;">
+    <a class="btn-tab {{ 'btn-on' if group=='student' else 'btn-off' }}"
+       href="{{ url_for('consult_summary', **request.args.to_dict(flat=True) | {'group':'student'}) }}">학생별 → 주제별</a>
+    <a class="btn-tab {{ 'btn-on' if group=='topic' else 'btn-off' }}"
+       href="{{ url_for('consult_summary', **request.args.to_dict(flat=True) | {'group':'topic'}) }}">주제별 → 학생별</a>
+  </div>
+
+  <!-- 필터 -->
+  <form class="filters" method="get">
+    <input type="hidden" name="group" value="{{ group }}">
+    <div class="field">
+      <label>학생(번호 기준)</label>
+      <select name="number" class="input" style="min-width:180px">
+        <option value="">전체</option>
+        {% for num, nm in students %}
+          <option value="{{ num }}" {{ 'selected' if request.args.get('number', type=int)==num else '' }}>
+            {{ "%02d"|format(num) }} {{ nm }}
+          </option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="name" value="{{ request.args.get('name','') }}">
+    </div>
+    <div class="field">
+      <label>주제</label>
+      <select name="topic" class="input" style="min-width:160px">
+        <option value="">전체</option>
+        {% for t in topics %}
+          <option value="{{ t }}" {{ 'selected' if request.args.get('topic')==t else '' }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>시작</label>
+      <input type="datetime-local" name="from" class="input" value="{{ request.args.get('from','') }}">
+    </div>
+    <div class="field">
+      <label>종료</label>
+      <input type="datetime-local" name="to" class="input" value="{{ request.args.get('to','') }}">
+    </div>
+    <div class="field">
+      <button class="btn" style="margin-top:22px">적용</button>
+    </div>
+    <div class="field">
+      <a class="btn" style="background:#fff;color:#333;border:1px solid #ccc;margin-top:22px"
+         href="{{ url_for('consult_summary', group=group) }}">초기화</a>
+    </div>
+  </form>
+
+  {% if group == 'student' %}
+    {% for s in data %}
+      <div class="card">
+        <div class="card-h">
+          <div><strong>{{ "%02d"|format(s.number) }} {{ s.name }}</strong>
+            <span class="badge">총 {{ s.total }}건</span>
+          </div>
+          {% if s.last_dt %}<div class="badge">최종: {{ s.last_dt }}</div>{% endif %}
+        </div>
+        <div class="card-b">
+          <ul class="list">
+            {% for t in s.topics %}
+            <li class="item">
+              <span>{{ t.topic }}</span>
+              <span>
+                <a class="btn"
+                   href="{{ url_for('consult_list') }}?number={{ s.number }}&name={{ s.name|urlencode }}&topic={{ t.topic|urlencode }}{% if request.args.get('from') %}&from={{ request.args.get('from')|urlencode }}{% endif %}{% if request.args.get('to') %}&to={{ request.args.get('to')|urlencode }}{% endif %}">
+                  {{ t.count }}건 보기
+                </a>
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    {% for g in data %}
+      <div class="card">
+        <div class="card-h">
+          <strong>{{ g.topic }}</strong>
+          <span class="badge">총 {{ g.total }}건</span>
+        </div>
+        <div class="card-b">
+          <ul class="list">
+            {% for st in g.students %}
+            <li class="item">
+              <span>{{ "%02d"|format(st.number) }} {{ st.name }}</span>
+              <span>
+                <a class="btn"
+                   href="{{ url_for('consult_list') }}?number={{ st.number }}&name={{ st.name|urlencode }}&topic={{ g.topic|urlencode }}{% if request.args.get('from') %}&from={{ request.args.get('from')|urlencode }}{% endif %}{% if request.args.get('to') %}&to={{ request.args.get('to')|urlencode }}{% endif %}">
+                  {{ st.count }}건 보기
+                </a>
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    {% endfor %}
+  {% endif %}
+</body>
+</html>
