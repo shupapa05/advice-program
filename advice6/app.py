@@ -445,6 +445,7 @@ def teacher_home():
     return render_template('teacher_home.html', username=session['teacher_username'])
 
 # === 담임용 목록(반 필터 + 스코프 전달) ===
+# === consult_list (드릴다운 필터 지원) :: 기존 함수 교체 ===
 @app.route('/consult_list')
 def consult_list():
     if 'teacher_id' not in session:
@@ -456,10 +457,41 @@ def consult_list():
     page = int(request.args.get('page', 1))
     per_page = int(request.args.get('per_page', 8))
 
-    filtered = (ConsultRequest.query
-                .filter_by(grade=grade, class_num=class_num)
-                .order_by(ConsultRequest.date.desc())
-                .all())
+    # 🔎 드릴다운/필터 파라미터
+    f_number = request.args.get('number', type=int)
+    f_name   = (request.args.get('name') or '').strip()
+    f_topic  = (request.args.get('topic') or '').strip()
+    f_from   = parse_dt((request.args.get('from') or '').strip())
+    f_to     = parse_dt((request.args.get('to') or '').strip())
+    if f_to:
+        # 종료일시 포함되도록 +1분
+        f_to = f_to + timedelta(minutes=1)
+
+    # 담임 스코프
+    base_q = (ConsultRequest.query
+              .filter_by(grade=grade, class_num=class_num)
+              .order_by(ConsultRequest.date.desc()))
+    all_rows = base_q.all()
+
+    # 🧲 파라미터 기반 2차 필터링(파이썬 레벨: 날짜가 문자열이어서 안전하게 처리)
+    def _ok(r):
+        if f_number and r.number != f_number:
+            return False
+        if f_name and r.name.strip() != f_name:
+            return False
+        if f_topic and r.topic.strip() != f_topic:
+            return False
+        if f_from or f_to:
+            rdt = parse_dt(r.date)
+            if not rdt:
+                return False
+            if f_from and rdt < f_from:
+                return False
+            if f_to and rdt >= f_to:
+                return False
+        return True
+
+    filtered = [r for r in all_rows if _ok(r)]
 
     rows = []
     for r in filtered:
