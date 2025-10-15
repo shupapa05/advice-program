@@ -4,4 +4,6 @@ SQLAlchemy==2.0.30
 gunicorn==21.2.0
 backports.zoneinfo; python_version < "3.9"
 APScheduler==3.10.4
+pendulum>=3.0.0
+
 
